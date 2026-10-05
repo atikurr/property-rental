@@ -2,9 +2,10 @@ const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 
+const authRoutes = require("./routes/authRoutes");
+
 const app = express();
 
-// Middleware
 app.use(
   cors({
     origin: "http://localhost:3000",
@@ -14,6 +15,9 @@ app.use(
 
 app.use(express.json());
 app.use(cookieParser());
+
+// Routes
+app.use("/api/auth", authRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
