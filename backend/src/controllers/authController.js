@@ -1,45 +1,58 @@
-const bcrypt = require("bcryptjs");
-const User = require("../models/User");
+const jwt = require("jsonwebtoken");
 
-const registerUser = async (req, res) => {
+const loginUser = async (req, res) => {
   try {
-    const { name, email, password, photo } = req.body;
+    const { email, password } = req.body;
 
-    // Validate required fields
-    if (!name || !email || !password) {
+    if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: "Name, email and password are required",
+        message: "Email and password are required",
       });
     }
 
-    // Check existing user
-    const existingUser = await User.findOne({
-      email: email.toLowerCase(),
-    });
-
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "User with this email already exists",
-      });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    // Create user
-    const user = await User.create({
-      name: name.trim(),
+    const user = await User.findOne({
       email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      photo: photo || "",
-      role: "tenant",
-    });
+    }).select("+password");
 
-    res.status(201).json({
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is inactive",
+      });
+    }
+
+    const isPasswordMatch = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user._id,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    res.status(200).json({
       success: true,
-      message: "User registered successfully",
+      message: "Login successful",
+      token,
       user: {
         id: user._id,
         name: user.name,
@@ -49,15 +62,11 @@ const registerUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Register error:", error);
+    console.error("Login error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Server error during registration",
+      message: "Server error during login",
     });
   }
-};
-
-module.exports = {
-  registerUser,
 };

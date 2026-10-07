@@ -1,8 +1,8 @@
-const express = require("express");
-const { registerUser } = require("../controllers/authController");
+import express from "express";
 
 const router = express.Router();
 
-router.post("/register", registerUser);
+// Custom authentication routes
+// Better Auth will handle the main authentication flow.
 
-module.exports = router;
+export default router;

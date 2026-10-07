@@ -1,16 +1,21 @@
-require("dotenv").config();
+import "dotenv/config";
 
-const app = require("./app");
-const connectDB = require("./config/db");
+import app from "./app.js";
+import connectDB from "./config/db.js";
 
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
-  await connectDB();
+  try {
+    await connectDB();
 
-  app.listen(PORT, () => {
-    console.log(`Property Rental Server running on port ${PORT}`);
-  });
+    app.listen(PORT, () => {
+      console.log(`Property Rental Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Server startup failed:", error.message);
+    process.exit(1);
+  }
 };
 
 startServer();
