@@ -8,40 +8,19 @@ const mongoClient = new MongoClient(
   process.env.MONGODB_URL
 );
 
-const database = mongoClient.db();
+
+const database =
+  mongoClient.db("property_db");
 
 export const auth = betterAuth({
-  /* ========================================================
-     BETTER AUTH SERVER URL
-  ======================================================== */
-
   baseURL: process.env.BETTER_AUTH_URL,
-
-  /* ========================================================
-     DATABASE
-  ======================================================== */
 
   database: mongodbAdapter(database, {
     client: mongoClient,
   }),
 
-  /* ========================================================
-     USER
-  ======================================================== */
-
   user: {
     additionalFields: {
-      /*
-       * ROLE
-       *
-       * IMPORTANT:
-       * Keep input:false.
-       *
-       * Users cannot directly inject "admin".
-       * Tenant/Owner selection is validated server-side
-       * through databaseHooks below.
-       */
-
       role: {
         type: ["tenant", "owner", "admin"],
         required: false,
@@ -49,10 +28,6 @@ export const auth = betterAuth({
         input: false,
         returned: true,
       },
-
-      /*
-       * PROFILE PHOTO
-       */
 
       photo: {
         type: "string",
@@ -64,43 +39,25 @@ export const auth = betterAuth({
     },
   },
 
-  /* ========================================================
-     DATABASE HOOKS
-  ======================================================== */
-
   databaseHooks: {
     user: {
       create: {
         before: async (user, ctx) => {
-          /*
-           * Default role
-           *
-           * Social users such as Google/Facebook
-           * will automatically become tenants.
-           */
-
           let assignedRole =
             user.role || "tenant";
 
           /*
-           * EMAIL REGISTRATION
-           *
-           * RegisterForm sends:
-           *
-           * role: "tenant"
-           * OR
-           * role: "owner"
-           *
-           * We validate it here on the server.
-           */
+            Public registration can create
+            only Tenant or Owner.
 
-          if (ctx?.path === "/sign-up/email") {
+            Admin must be created manually
+            by changing the role in MongoDB.
+          */
+          if (
+            ctx?.path === "/sign-up/email"
+          ) {
             const requestedRole =
               ctx?.body?.role;
-
-            /*
-             * Never allow admin from public registration.
-             */
 
             if (
               !["tenant", "owner"].includes(
@@ -119,11 +76,6 @@ export const auth = betterAuth({
             assignedRole = requestedRole;
           }
 
-          /*
-           * Return the final server-controlled
-           * user data.
-           */
-
           return {
             data: {
               ...user,
@@ -135,23 +87,14 @@ export const auth = betterAuth({
     },
   },
 
-  /* ========================================================
-     EMAIL + PASSWORD
-  ======================================================== */
-
   emailAndPassword: {
     enabled: true,
   },
-
-  /* ========================================================
-     SOCIAL PROVIDERS
-  ======================================================== */
 
   socialProviders: {
     google: {
       clientId:
         process.env.GOOGLE_CLIENT_ID,
-
       clientSecret:
         process.env.GOOGLE_CLIENT_SECRET,
     },
@@ -159,26 +102,14 @@ export const auth = betterAuth({
     facebook: {
       clientId:
         process.env.FACEBOOK_CLIENT_ID,
-
       clientSecret:
         process.env.FACEBOOK_CLIENT_SECRET,
     },
   },
 
-  /* ========================================================
-     JWT
-  ======================================================== */
-
   plugins: [
     jwt({
       jwt: {
-        /*
-         * JWT PAYLOAD
-         *
-         * These values will be available inside
-         * req.user after backend JWT verification.
-         */
-
         definePayload: ({ user }) => ({
           id: user.id,
           email: user.email,
@@ -190,18 +121,10 @@ export const auth = betterAuth({
             "",
         }),
 
-        /*
-         * JWT expires after 7 days.
-         */
-
         expirationTime: "7d",
       },
     }),
   ],
-
-  /* ========================================================
-     TRUSTED ORIGINS
-  ======================================================== */
 
   trustedOrigins: [
     "http://localhost:3000",

@@ -13,7 +13,6 @@ import {
   MapPin,
   Plus,
   Save,
-  Trash2,
   X,
 } from "lucide-react";
 
@@ -31,7 +30,6 @@ import {
 } from "@/components/ui/card";
 
 import { Input } from "@/components/ui/input";
-
 import { Textarea } from "@/components/ui/textarea";
 
 import {
@@ -51,12 +49,7 @@ import {
 
 import "react-toastify/dist/ReactToastify.css";
 
-const API_URL =
-  "http://localhost:5000";
-
-/* =========================================================
-   DEFAULT FORM
-========================================================= */
+const API_URL = "http://localhost:5000";
 
 const INITIAL_FORM = {
   title: "",
@@ -72,10 +65,6 @@ const INITIAL_FORM = {
   extraFeatures: "",
 };
 
-/* =========================================================
-   PROPERTY TYPES
-========================================================= */
-
 const PROPERTY_TYPES = [
   "Apartment",
   "House",
@@ -86,10 +75,6 @@ const PROPERTY_TYPES = [
   "Other",
 ];
 
-/* =========================================================
-   RENT TYPES
-========================================================= */
-
 const RENT_TYPES = [
   "Monthly",
   "Yearly",
@@ -97,41 +82,28 @@ const RENT_TYPES = [
   "Daily",
 ];
 
-/* =========================================================
-   MAIN PAGE
-========================================================= */
-
 export default function EditPropertyPage() {
   const router = useRouter();
   const params = useParams();
 
-  const propertyId =
-    params?.id;
+  const propertyId = params?.id;
 
-  const [form, setForm] =
-    useState(INITIAL_FORM);
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [images, setImages] = useState([]);
+  const [imageUrl, setImageUrl] = useState("");
 
-  const [images, setImages] =
-    useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const [imageUrl, setImageUrl] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [saving, setSaving] =
-    useState(false);
-
-  const [propertyStatus, setPropertyStatus] =
-    useState("");
-
+  const [propertyStatus, setPropertyStatus] = useState("");
   const [rejectionFeedback, setRejectionFeedback] =
     useState("");
 
-  /* =========================================================
-     LOAD PROPERTY
-  ========================================================= */
+  /*
+  =========================================================
+  LOAD OWNER PROPERTY
+  =========================================================
+  */
 
   useEffect(() => {
     let cancelled = false;
@@ -142,8 +114,9 @@ export default function EditPropertyPage() {
       }
 
       try {
-        const tokenResponse =
-          await authClient.token();
+        setLoading(true);
+
+        const tokenResponse = await authClient.token();
 
         const token =
           tokenResponse?.data?.token ||
@@ -161,40 +134,76 @@ export default function EditPropertyPage() {
           return;
         }
 
+        /*
+        IMPORTANT FIX
+
+        We do NOT use:
+
+        /api/properties/${propertyId}
+
+        because that endpoint is for public approved
+        properties.
+
+        Instead we load the owner's properties and
+        find the current property.
+        */
+
         const response = await fetch(
-          `${API_URL}/api/properties/${propertyId}`,
+          `${API_URL}/api/properties/my-properties?page=1&limit=100`,
           {
             method: "GET",
+
             headers: {
               Authorization: `Bearer ${token}`,
             },
+
             credentials: "include",
           }
         );
 
-        const data =
-          await response.json();
+        const data = await response.json();
 
         if (!response.ok) {
           throw new Error(
             data?.message ||
-              "Failed to load property."
+              "Failed to load your properties."
           );
         }
 
-        const property =
-          data?.property;
+        const properties =
+          Array.isArray(data?.properties)
+            ? data.properties
+            : Array.isArray(data?.data)
+            ? data.data
+            : [];
+
+        /*
+        Find the exact property.
+
+        Convert both IDs to String so that
+        ObjectId/string mismatch doesn't cause
+        the property to be missing.
+        */
+
+        const property = properties.find(
+          (item) =>
+            String(item?._id || item?.id) ===
+            String(propertyId)
+        );
 
         if (!property) {
           throw new Error(
-            "Property data was not found."
+            "Property not found in your properties."
           );
         }
 
         if (!cancelled) {
+          /*
+          Populate all form fields with existing data.
+          */
+
           setForm({
-            title:
-              property.title || "",
+            title: property.title || "",
 
             description:
               property.description || "",
@@ -203,63 +212,58 @@ export default function EditPropertyPage() {
               property.location || "",
 
             type:
-              property.type ||
-              "Apartment",
+              property.type || "Apartment",
 
             rent:
-              property.rent ??
-              "",
+              property.rent ?? "",
 
             rentType:
-              property.rentType ||
-              "Monthly",
+              property.rentType || "Monthly",
 
             bedrooms:
-              property.bedrooms ??
-              "",
+              property.bedrooms ?? "",
 
             bathrooms:
-              property.bathrooms ??
-              "",
+              property.bathrooms ?? "",
 
             size:
-              property.size ??
-              "",
+              property.size ?? "",
 
             amenities:
-              Array.isArray(
-                property.amenities
-              )
-                ? property.amenities.join(
-                    ", "
-                  )
+              Array.isArray(property.amenities)
+                ? property.amenities.join(", ")
                 : "",
 
             extraFeatures:
-              Array.isArray(
-                property.extraFeatures
-              )
-                ? property.extraFeatures.join(
-                    ", "
-                  )
+              Array.isArray(property.extraFeatures)
+                ? property.extraFeatures.join(", ")
                 : "",
           });
 
+          /*
+          Keep existing property images.
+          */
+
           setImages(
-            Array.isArray(
-              property.images
-            )
+            Array.isArray(property.images)
               ? property.images
               : []
           );
+
+          /*
+          Keep current property status.
+          */
 
           setPropertyStatus(
             property.status || ""
           );
 
+          /*
+          Keep admin rejection feedback.
+          */
+
           setRejectionFeedback(
-            property.rejectionFeedback ||
-              ""
+            property.rejectionFeedback || ""
           );
         }
       } catch (error) {
@@ -270,7 +274,7 @@ export default function EditPropertyPage() {
 
         if (!cancelled) {
           toast.error(
-            error.message ||
+            error?.message ||
               "Failed to load property."
           );
         }
@@ -288,13 +292,13 @@ export default function EditPropertyPage() {
     };
   }, [propertyId, router]);
 
-  /* =========================================================
-     HANDLE INPUT
-  ========================================================= */
+  /*
+  =========================================================
+  HANDLE INPUT
+  =========================================================
+  */
 
-  const handleChange = (
-    event
-  ) => {
+  const handleChange = (event) => {
     const {
       name,
       value,
@@ -306,13 +310,14 @@ export default function EditPropertyPage() {
     }));
   };
 
-  /* =========================================================
-     ADD IMAGE
-  ========================================================= */
+  /*
+  =========================================================
+  ADD IMAGE
+  =========================================================
+  */
 
   const handleAddImage = () => {
-    const url =
-      imageUrl.trim();
+    const url = imageUrl.trim();
 
     if (!url) {
       toast.error(
@@ -348,13 +353,13 @@ export default function EditPropertyPage() {
     setImageUrl("");
   };
 
-  /* =========================================================
-     REMOVE IMAGE
-  ========================================================= */
+  /*
+  =========================================================
+  REMOVE IMAGE
+  =========================================================
+  */
 
-  const handleRemoveImage = (
-    index
-  ) => {
+  const handleRemoveImage = (index) => {
     setImages((current) =>
       current.filter(
         (_, imageIndex) =>
@@ -363,22 +368,25 @@ export default function EditPropertyPage() {
     );
   };
 
-  /* =========================================================
-     IMAGE URL ENTER
-  ========================================================= */
+  /*
+  =========================================================
+  IMAGE ENTER
+  =========================================================
+  */
 
-  const handleImageKeyDown = (
-    event
-  ) => {
+  const handleImageKeyDown = (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
+
       handleAddImage();
     }
   };
 
-  /* =========================================================
-     VALIDATION
-  ========================================================= */
+  /*
+  =========================================================
+  VALIDATION
+  =========================================================
+  */
 
   const validateForm = () => {
     if (!form.title.trim()) {
@@ -468,13 +476,13 @@ export default function EditPropertyPage() {
     return true;
   };
 
-  /* =========================================================
-     UPDATE PROPERTY
-  ========================================================= */
+  /*
+  =========================================================
+  UPDATE PROPERTY
+  =========================================================
+  */
 
-  const handleSubmit = async (
-    event
-  ) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (!validateForm()) {
@@ -501,25 +509,31 @@ export default function EditPropertyPage() {
         return;
       }
 
+      /*
+      Convert comma-separated text into arrays.
+      */
+
       const amenities =
         form.amenities
           .split(",")
-          .map((item) =>
-            item.trim()
-          )
+          .map((item) => item.trim())
           .filter(Boolean);
 
       const extraFeatures =
         form.extraFeatures
           .split(",")
-          .map((item) =>
-            item.trim()
-          )
+          .map((item) => item.trim())
           .filter(Boolean);
 
+      /*
+      IMPORTANT
+
+      Keep ALL existing form data in payload.
+      Existing images are also sent.
+      */
+
       const payload = {
-        title:
-          form.title.trim(),
+        title: form.title.trim(),
 
         description:
           form.description.trim(),
@@ -529,30 +543,24 @@ export default function EditPropertyPage() {
 
         type: form.type,
 
-        rent: Number(
-          form.rent
-        ),
+        rent: Number(form.rent),
 
-        rentType:
-          form.rentType,
+        rentType: form.rentType,
 
-        bedrooms: Number(
-          form.bedrooms
-        ),
+        bedrooms:
+          Number(form.bedrooms),
 
-        bathrooms: Number(
-          form.bathrooms
-        ),
+        bathrooms:
+          Number(form.bathrooms),
 
-        size: Number(
-          form.size
-        ),
+        size:
+          Number(form.size),
 
         amenities,
 
-        images,
-
         extraFeatures,
+
+        images,
       };
 
       const response = await fetch(
@@ -564,14 +572,13 @@ export default function EditPropertyPage() {
             "Content-Type":
               "application/json",
 
-            Authorization: `Bearer ${token}`,
+            Authorization:
+              `Bearer ${token}`,
           },
 
           credentials: "include",
 
-          body: JSON.stringify(
-            payload
-          ),
+          body: JSON.stringify(payload),
         }
       );
 
@@ -589,9 +596,12 @@ export default function EditPropertyPage() {
         "Property updated successfully. It has been submitted for admin review."
       );
 
-      setPropertyStatus(
-        "Pending"
-      );
+      /*
+      Backend changes updated property status
+      to Pending.
+      */
+
+      setPropertyStatus("Pending");
 
       setRejectionFeedback("");
 
@@ -607,7 +617,7 @@ export default function EditPropertyPage() {
       );
 
       toast.error(
-        error.message ||
+        error?.message ||
           "Failed to update property."
       );
     } finally {
@@ -615,9 +625,11 @@ export default function EditPropertyPage() {
     }
   };
 
-  /* =========================================================
-     LOADING STATE
-  ========================================================= */
+  /*
+  =========================================================
+  LOADING
+  =========================================================
+  */
 
   if (loading) {
     return (
@@ -653,9 +665,11 @@ export default function EditPropertyPage() {
     );
   }
 
-  /* =========================================================
-     PAGE
-  ========================================================= */
+  /*
+  =========================================================
+  PAGE
+  =========================================================
+  */
 
   return (
     <div className="min-h-full bg-zinc-50/50 dark:bg-zinc-950">
@@ -669,12 +683,11 @@ export default function EditPropertyPage() {
       />
 
       <div className="mx-auto w-full max-w-[1350px] px-4 py-6 sm:px-6 lg:px-8">
-        {/* =====================================================
-            HEADER
-        ===================================================== */}
+        {/* HEADER */}
 
         <div className="mb-7">
           <Button
+            type="button"
             variant="ghost"
             onClick={() =>
               router.push(
@@ -725,7 +738,7 @@ export default function EditPropertyPage() {
                 variant="outline"
                 className="w-fit rounded-full px-3 py-1.5"
               >
-                Current Status:{" "}
+                Current Status:
                 <span className="ml-1 font-semibold">
                   {propertyStatus}
                 </span>
@@ -734,12 +747,9 @@ export default function EditPropertyPage() {
           </div>
         </div>
 
-        {/* =====================================================
-            REJECTION FEEDBACK
-        ===================================================== */}
+        {/* REJECTION FEEDBACK */}
 
-        {propertyStatus ===
-          "Rejected" &&
+        {propertyStatus === "Rejected" &&
           rejectionFeedback && (
             <Card className="mb-6 border-red-200 bg-red-50/70 shadow-sm dark:border-red-900/50 dark:bg-red-950/20">
               <CardContent className="p-5">
@@ -750,8 +760,7 @@ export default function EditPropertyPage() {
 
                   <div>
                     <h3 className="font-semibold text-red-800 dark:text-red-300">
-                      Admin Rejection
-                      Feedback
+                      Admin Rejection Feedback
                     </h3>
 
                     <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-red-700 dark:text-red-400">
@@ -770,20 +779,15 @@ export default function EditPropertyPage() {
             </Card>
           )}
 
-        {/* =====================================================
-            FORM
-        ===================================================== */}
+        {/* FORM */}
 
-        <form
-          onSubmit={handleSubmit}
-        >
+        <form onSubmit={handleSubmit}>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-            {/* =================================================
-                LEFT COLUMN
-            ================================================= */}
+            {/* LEFT */}
 
             <div className="space-y-6">
-              {/* Basic Information */}
+              {/* BASIC INFORMATION */}
+
               <Card className="border-zinc-200 shadow-sm dark:border-zinc-800">
                 <CardHeader>
                   <CardTitle>
@@ -797,7 +801,8 @@ export default function EditPropertyPage() {
                 </CardHeader>
 
                 <CardContent className="space-y-5">
-                  {/* Title */}
+                  {/* TITLE */}
+
                   <div className="space-y-2">
                     <label
                       htmlFor="title"
@@ -812,18 +817,15 @@ export default function EditPropertyPage() {
                     <Input
                       id="title"
                       name="title"
-                      value={
-                        form.title
-                      }
-                      onChange={
-                        handleChange
-                      }
+                      value={form.title}
+                      onChange={handleChange}
                       placeholder="e.g. Modern 3 Bedroom Apartment"
                       disabled={saving}
                     />
                   </div>
 
-                  {/* Description */}
+                  {/* DESCRIPTION */}
+
                   <div className="space-y-2">
                     <label
                       htmlFor="description"
@@ -838,12 +840,8 @@ export default function EditPropertyPage() {
                     <Textarea
                       id="description"
                       name="description"
-                      value={
-                        form.description
-                      }
-                      onChange={
-                        handleChange
-                      }
+                      value={form.description}
+                      onChange={handleChange}
                       placeholder="Describe the property, location, facilities, and key features..."
                       rows={7}
                       disabled={saving}
@@ -851,7 +849,8 @@ export default function EditPropertyPage() {
                     />
                   </div>
 
-                  {/* Location */}
+                  {/* LOCATION */}
+
                   <div className="space-y-2">
                     <label
                       htmlFor="location"
@@ -869,12 +868,8 @@ export default function EditPropertyPage() {
                       <Input
                         id="location"
                         name="location"
-                        value={
-                          form.location
-                        }
-                        onChange={
-                          handleChange
-                        }
+                        value={form.location}
+                        onChange={handleChange}
                         placeholder="e.g. Dhanmondi, Dhaka"
                         disabled={saving}
                         className="pl-9"
@@ -883,7 +878,8 @@ export default function EditPropertyPage() {
                   </div>
 
                   <div className="grid gap-5 sm:grid-cols-2">
-                    {/* Property Type */}
+                    {/* PROPERTY TYPE */}
+
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                         Property Type
@@ -893,24 +889,14 @@ export default function EditPropertyPage() {
                       </label>
 
                       <Select
-                        value={
-                          form.type
+                        value={form.type}
+                        onValueChange={(value) =>
+                          setForm((current) => ({
+                            ...current,
+                            type: value,
+                          }))
                         }
-                        onValueChange={(
-                          value
-                        ) =>
-                          setForm(
-                            (
-                              current
-                            ) => ({
-                              ...current,
-                              type: value,
-                            })
-                          )
-                        }
-                        disabled={
-                          saving
-                        }
+                        disabled={saving}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select property type" />
@@ -920,12 +906,8 @@ export default function EditPropertyPage() {
                           {PROPERTY_TYPES.map(
                             (type) => (
                               <SelectItem
-                                key={
-                                  type
-                                }
-                                value={
-                                  type
-                                }
+                                key={type}
+                                value={type}
                               >
                                 {type}
                               </SelectItem>
@@ -935,32 +917,22 @@ export default function EditPropertyPage() {
                       </Select>
                     </div>
 
-                    {/* Rent Type */}
+                    {/* RENT TYPE */}
+
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                         Rent Type
                       </label>
 
                       <Select
-                        value={
-                          form.rentType
+                        value={form.rentType}
+                        onValueChange={(value) =>
+                          setForm((current) => ({
+                            ...current,
+                            rentType: value,
+                          }))
                         }
-                        onValueChange={(
-                          value
-                        ) =>
-                          setForm(
-                            (
-                              current
-                            ) => ({
-                              ...current,
-                              rentType:
-                                value,
-                            })
-                          )
-                        }
-                        disabled={
-                          saving
-                        }
+                        disabled={saving}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select rent type" />
@@ -968,16 +940,10 @@ export default function EditPropertyPage() {
 
                         <SelectContent>
                           {RENT_TYPES.map(
-                            (
-                              rentType
-                            ) => (
+                            (rentType) => (
                               <SelectItem
-                                key={
-                                  rentType
-                                }
-                                value={
-                                  rentType
-                                }
+                                key={rentType}
+                                value={rentType}
                               >
                                 {rentType}
                               </SelectItem>
@@ -990,7 +956,8 @@ export default function EditPropertyPage() {
                 </CardContent>
               </Card>
 
-              {/* Property Details */}
+              {/* PROPERTY DETAILS */}
+
               <Card className="border-zinc-200 shadow-sm dark:border-zinc-800">
                 <CardHeader>
                   <CardTitle>
@@ -1005,7 +972,8 @@ export default function EditPropertyPage() {
 
                 <CardContent>
                   <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                    {/* Rent */}
+                    {/* RENT */}
+
                     <div className="space-y-2">
                       <label
                         htmlFor="rent"
@@ -1027,22 +995,17 @@ export default function EditPropertyPage() {
                           name="rent"
                           type="number"
                           min="0"
-                          value={
-                            form.rent
-                          }
-                          onChange={
-                            handleChange
-                          }
+                          value={form.rent}
+                          onChange={handleChange}
                           placeholder="25000"
-                          disabled={
-                            saving
-                          }
+                          disabled={saving}
                           className="pl-8"
                         />
                       </div>
                     </div>
 
-                    {/* Bedrooms */}
+                    {/* BEDROOMS */}
+
                     <div className="space-y-2">
                       <label
                         htmlFor="bedrooms"
@@ -1059,18 +1022,15 @@ export default function EditPropertyPage() {
                         name="bedrooms"
                         type="number"
                         min="0"
-                        value={
-                          form.bedrooms
-                        }
-                        onChange={
-                          handleChange
-                        }
+                        value={form.bedrooms}
+                        onChange={handleChange}
                         placeholder="3"
                         disabled={saving}
                       />
                     </div>
 
-                    {/* Bathrooms */}
+                    {/* BATHROOMS */}
+
                     <div className="space-y-2">
                       <label
                         htmlFor="bathrooms"
@@ -1087,18 +1047,15 @@ export default function EditPropertyPage() {
                         name="bathrooms"
                         type="number"
                         min="0"
-                        value={
-                          form.bathrooms
-                        }
-                        onChange={
-                          handleChange
-                        }
+                        value={form.bathrooms}
+                        onChange={handleChange}
                         placeholder="2"
                         disabled={saving}
                       />
                     </div>
 
-                    {/* Size */}
+                    {/* SIZE */}
+
                     <div className="space-y-2">
                       <label
                         htmlFor="size"
@@ -1115,12 +1072,8 @@ export default function EditPropertyPage() {
                         name="size"
                         type="number"
                         min="1"
-                        value={
-                          form.size
-                        }
-                        onChange={
-                          handleChange
-                        }
+                        value={form.size}
+                        onChange={handleChange}
                         placeholder="1200"
                         disabled={saving}
                       />
@@ -1129,7 +1082,8 @@ export default function EditPropertyPage() {
                 </CardContent>
               </Card>
 
-              {/* Amenities */}
+              {/* AMENITIES */}
+
               <Card className="border-zinc-200 shadow-sm dark:border-zinc-800">
                 <CardHeader>
                   <CardTitle>
@@ -1154,12 +1108,8 @@ export default function EditPropertyPage() {
                     <Input
                       id="amenities"
                       name="amenities"
-                      value={
-                        form.amenities
-                      }
-                      onChange={
-                        handleChange
-                      }
+                      value={form.amenities}
+                      onChange={handleChange}
                       placeholder="WiFi, Parking, Security, Elevator"
                       disabled={saving}
                     />
@@ -1181,12 +1131,8 @@ export default function EditPropertyPage() {
                     <Input
                       id="extraFeatures"
                       name="extraFeatures"
-                      value={
-                        form.extraFeatures
-                      }
-                      onChange={
-                        handleChange
-                      }
+                      value={form.extraFeatures}
+                      onChange={handleChange}
                       placeholder="Balcony, Rooftop, Furnished Kitchen"
                       disabled={saving}
                     />
@@ -1200,12 +1146,11 @@ export default function EditPropertyPage() {
               </Card>
             </div>
 
-            {/* =================================================
-                RIGHT COLUMN
-            ================================================= */}
+            {/* RIGHT */}
 
             <div className="space-y-6">
-              {/* Images */}
+              {/* IMAGES */}
+
               <Card className="border-zinc-200 shadow-sm dark:border-zinc-800">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1222,18 +1167,12 @@ export default function EditPropertyPage() {
                 </CardHeader>
 
                 <CardContent className="space-y-5">
-                  {/* Add Image */}
                   <div className="flex gap-2">
                     <Input
-                      value={
-                        imageUrl
-                      }
-                      onChange={(
-                        event
-                      ) =>
+                      value={imageUrl}
+                      onChange={(event) =>
                         setImageUrl(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       onKeyDown={
@@ -1245,9 +1184,7 @@ export default function EditPropertyPage() {
 
                     <Button
                       type="button"
-                      onClick={
-                        handleAddImage
-                      }
+                      onClick={handleAddImage}
                       size="icon"
                       disabled={
                         saving ||
@@ -1259,7 +1196,6 @@ export default function EditPropertyPage() {
                     </Button>
                   </div>
 
-                  {/* Image Count */}
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                       Images
@@ -1267,8 +1203,7 @@ export default function EditPropertyPage() {
 
                     <Badge variant="secondary">
                       {images.length}{" "}
-                      {images.length ===
-                      1
+                      {images.length === 1
                         ? "image"
                         : "images"}
                     </Badge>
@@ -1276,15 +1211,10 @@ export default function EditPropertyPage() {
 
                   <Separator />
 
-                  {/* Images */}
-                  {images.length >
-                  0 ? (
+                  {images.length > 0 ? (
                     <div className="grid grid-cols-2 gap-3">
                       {images.map(
-                        (
-                          image,
-                          index
-                        ) => (
+                        (image, index) => (
                           <div
                             key={`${image}-${index}`}
                             className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
@@ -1292,8 +1222,7 @@ export default function EditPropertyPage() {
                             <Image
                               src={image}
                               alt={`Property image ${
-                                index +
-                                1
+                                index + 1
                               }`}
                               fill
                               sizes="(max-width: 640px) 50vw, 180px"
@@ -1304,8 +1233,7 @@ export default function EditPropertyPage() {
                             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6">
                               <span className="text-[11px] font-medium text-white">
                                 Image{" "}
-                                {index +
-                                  1}
+                                {index + 1}
                               </span>
                             </div>
 
@@ -1316,13 +1244,10 @@ export default function EditPropertyPage() {
                                   index
                                 )
                               }
-                              disabled={
-                                saving
-                              }
-                              className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white opacity-100 transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={saving}
+                              className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                               aria-label={`Remove image ${
-                                index +
-                                1
+                                index + 1
                               }`}
                             >
                               <X className="h-3.5 w-3.5" />
@@ -1348,7 +1273,8 @@ export default function EditPropertyPage() {
                 </CardContent>
               </Card>
 
-              {/* Update Notice */}
+              {/* ADMIN REVIEW */}
+
               <Card className="border-amber-200 bg-amber-50/70 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
                 <CardContent className="p-5">
                   <div className="flex gap-3">
@@ -1365,9 +1291,7 @@ export default function EditPropertyPage() {
                         After updating this
                         property, its status will
                         return to{" "}
-                        <strong>
-                          Pending
-                        </strong>{" "}
+                        <strong>Pending</strong>{" "}
                         and an admin will need to
                         review the changes.
                       </p>
@@ -1376,14 +1300,13 @@ export default function EditPropertyPage() {
                 </CardContent>
               </Card>
 
-              {/* Actions */}
+              {/* ACTIONS */}
+
               <Card className="border-zinc-200 shadow-sm dark:border-zinc-800">
                 <CardContent className="space-y-3 p-5">
                   <Button
                     type="submit"
-                    disabled={
-                      saving
-                    }
+                    disabled={saving}
                     className="h-11 w-full gap-2"
                   >
                     {saving ? (
@@ -1404,9 +1327,7 @@ export default function EditPropertyPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={
-                      saving
-                    }
+                    disabled={saving}
                     onClick={() =>
                       router.push(
                         "/dashboard/owner/properties"

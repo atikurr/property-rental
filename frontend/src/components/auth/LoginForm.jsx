@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
+
 import Link from "next/link";
+
 import { useRouter } from "next/navigation";
+
 import { motion } from "framer-motion";
+
 import {
   Mail,
   LockKeyhole,
@@ -22,34 +26,71 @@ export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword, setShowPassword] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState("");
+
+  const [socialLoading, setSocialLoading] =
+    useState("");
 
   const [error, setError] = useState("");
 
   // =====================================================
+  // ROLE BASED REDIRECT
+  // =====================================================
+
+  const redirectByRole = (role) => {
+    if (role === "admin") {
+      router.replace("/dashboard/admin");
+      return;
+    }
+
+    if (role === "owner") {
+      router.replace("/dashboard/owner");
+      return;
+    }
+
+    router.replace("/dashboard/tenant");
+  };
+
+  // =====================================================
   // EMAIL + PASSWORD LOGIN
   // =====================================================
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     setError("");
 
     if (!email.trim() || !password) {
-      setError("Please enter your email and password.");
+      setError(
+        "Please enter your email and password."
+      );
+
       return;
     }
 
     try {
       setLoading(true);
 
+      /*
+        ---------------------------------------------------
+        BETTER AUTH EMAIL LOGIN
+        ---------------------------------------------------
+
+        Important:
+        We do NOT send a fixed dashboard callback URL.
+
+        After login, we get the current session and
+        redirect according to the user's actual role.
+      */
+
       const { data, error } =
         await authClient.signIn.email({
           email: email.trim(),
           password,
-          callbackURL:
-            "http://localhost:3000/dashboard/tenant",
+          disableRedirect: true,
         });
 
       if (error) {
@@ -65,7 +106,10 @@ export default function LoginForm() {
         );
       }
 
-      // Get current session
+      // =================================================
+      // GET CURRENT SESSION
+      // =================================================
+
       const sessionResult =
         await authClient.getSession();
 
@@ -85,17 +129,21 @@ export default function LoginForm() {
         );
       }
 
+      console.log(
+        "Logged in user:",
+        user
+      );
+
+      console.log(
+        "Logged in user role:",
+        user.role
+      );
+
       // =================================================
       // ROLE BASED REDIRECT
       // =================================================
 
-      if (user.role === "admin") {
-        router.replace("/dashboard/admin");
-      } else if (user.role === "owner") {
-        router.replace("/dashboard/owner");
-      } else {
-        router.replace("/dashboard/tenant");
-      }
+      redirectByRole(user.role);
 
       router.refresh();
     } catch (error) {
@@ -116,31 +164,37 @@ export default function LoginForm() {
   // =====================================================
   // SOCIAL LOGIN
   // =====================================================
+
   const handleSocialLogin = async (
     provider
   ) => {
     try {
       setError("");
+
       setSocialLoading(provider);
 
       const { data, error } =
         await authClient.signIn.social({
           provider,
 
-          // Where the user should land
-          // AFTER Better Auth completes OAuth.
+          /*
+            New social users are assigned Tenant
+            by the backend as required by the assignment.
+          */
+
           callbackURL:
             "http://localhost:3000/dashboard/tenant",
 
-          // If OAuth fails
           errorCallbackURL:
             "http://localhost:3000/login",
 
-          // New social user
           newUserCallbackURL:
             "http://localhost:3000/dashboard/tenant",
 
-          // We handle the redirect manually.
+          /*
+            We handle the OAuth redirect manually.
+          */
+
           disableRedirect: true,
         });
 
@@ -151,10 +205,14 @@ export default function LoginForm() {
         );
       }
 
-      // Better Auth returns the provider URL
-      // when disableRedirect is true.
+      /*
+        Better Auth returns the OAuth provider URL
+        when disableRedirect is true.
+      */
+
       if (data?.url) {
         window.location.assign(data.url);
+
         return;
       }
 
@@ -192,12 +250,11 @@ export default function LoginForm() {
       className="w-full max-w-md"
     >
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#151515] shadow-2xl">
-
         {/* =================================================
             HEADER
         ================================================== */}
-        <div className="px-7 pb-6 pt-8 text-center">
 
+        <div className="px-7 pb-6 pt-8 text-center">
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-black shadow-lg">
             <span className="text-xl font-bold">
               PR
@@ -216,12 +273,13 @@ export default function LoginForm() {
         {/* =================================================
             FORM
         ================================================== */}
+
         <form
           onSubmit={handleSubmit}
           className="space-y-4 px-7"
         >
+          {/* ERROR MESSAGE */}
 
-          {/* Error Message */}
           {error && (
             <motion.div
               initial={{
@@ -241,6 +299,7 @@ export default function LoginForm() {
           {/* =================================================
               EMAIL
           ================================================== */}
+
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-300">
               Email
@@ -269,6 +328,7 @@ export default function LoginForm() {
           {/* =================================================
               PASSWORD
           ================================================== */}
+
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-300">
               Password
@@ -323,6 +383,7 @@ export default function LoginForm() {
           {/* =================================================
               FORGOT PASSWORD
           ================================================== */}
+
           <div className="flex justify-end">
             <Link
               href="/forgot-password"
@@ -335,6 +396,7 @@ export default function LoginForm() {
           {/* =================================================
               LOGIN BUTTON
           ================================================== */}
+
           <button
             type="submit"
             disabled={loading}
@@ -362,8 +424,8 @@ export default function LoginForm() {
         {/* =================================================
             DIVIDER
         ================================================== */}
-        <div className="flex items-center gap-4 px-7 py-6">
 
+        <div className="flex items-center gap-4 px-7 py-6">
           <div className="h-px flex-1 bg-white/10" />
 
           <span className="text-xs text-zinc-600">
@@ -376,9 +438,10 @@ export default function LoginForm() {
         {/* =================================================
             SOCIAL LOGIN BUTTONS
         ================================================== */}
-        <div className="grid grid-cols-3 gap-3 px-7">
 
+        <div className="grid grid-cols-3 gap-3 px-7">
           {/* GOOGLE */}
+
           <button
             type="button"
             onClick={() =>
@@ -391,8 +454,7 @@ export default function LoginForm() {
             className="flex h-11 items-center justify-center rounded-xl border border-white/10 bg-[#0d0d0d] transition hover:border-white/20 hover:bg-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Continue with Google"
           >
-            {socialLoading ===
-            "google" ? (
+            {socialLoading === "google" ? (
               <Loader2
                 size={18}
                 className="animate-spin text-white"
@@ -403,6 +465,7 @@ export default function LoginForm() {
           </button>
 
           {/* APPLE */}
+
           <button
             type="button"
             onClick={() =>
@@ -415,8 +478,7 @@ export default function LoginForm() {
             className="flex h-11 items-center justify-center rounded-xl border border-white/10 bg-[#0d0d0d] text-white transition hover:border-white/20 hover:bg-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Continue with Apple"
           >
-            {socialLoading ===
-            "apple" ? (
+            {socialLoading === "apple" ? (
               <Loader2
                 size={18}
                 className="animate-spin"
@@ -427,6 +489,7 @@ export default function LoginForm() {
           </button>
 
           {/* FACEBOOK */}
+
           <button
             type="button"
             onClick={() =>
@@ -454,6 +517,7 @@ export default function LoginForm() {
         {/* =================================================
             REGISTER
         ================================================== */}
+
         <div className="px-7 pb-8 pt-6 text-center">
           <p className="text-sm text-zinc-500">
             Don't have an account?{" "}
@@ -474,6 +538,7 @@ export default function LoginForm() {
 // =====================================================
 // GOOGLE ICON
 // =====================================================
+
 function GoogleIcon() {
   return (
     <svg
@@ -509,6 +574,7 @@ function GoogleIcon() {
 // =====================================================
 // FACEBOOK ICON
 // =====================================================
+
 function FacebookIcon() {
   return (
     <svg

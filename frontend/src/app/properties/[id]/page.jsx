@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+
 import {
   ArrowLeft,
   Bath,
@@ -20,20 +21,34 @@ import {
   User,
   X,
 } from "lucide-react";
-import toast from "react-hot-toast";
+
+import {
+  toast,
+  ToastContainer,
+} from "react-toastify";
+
+import "react-toastify/dist/ReactToastify.css";
 
 import { authClient } from "@/lib/auth-client";
 
 const API_URL = "http://localhost:5000";
 
 const formatPrice = (price) => {
-  return new Intl.NumberFormat("en-US").format(price || 0);
+  return new Intl.NumberFormat("en-US").format(
+    Number(price || 0)
+  );
 };
 
 const formatDate = (date) => {
   if (!date) return "";
 
-  return new Date(date).toLocaleDateString("en-US", {
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  return parsedDate.toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -55,6 +70,7 @@ export default function PropertyDetailsPage() {
   const [activeImage, setActiveImage] = useState(0);
 
   const [favorite, setFavorite] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -66,23 +82,25 @@ export default function PropertyDetailsPage() {
     duration: 1,
   });
 
-  /* =========================
+  /* =========================================================
      LOAD SESSION
-  ========================= */
+  ========================================================= */
 
   useEffect(() => {
     const loadSession = async () => {
       try {
         const result = await authClient.getSession();
 
-        if (!result?.data?.session) {
+        const currentSession = result?.data?.session;
+
+        if (!currentSession) {
           router.replace(
             `/login?callbackUrl=/property/${propertyId}`
           );
           return;
         }
 
-        setSession(result.data.session);
+        setSession(currentSession);
       } catch (error) {
         console.error("Session error:", error);
 
@@ -99,13 +117,17 @@ export default function PropertyDetailsPage() {
     }
   }, [propertyId, router]);
 
-  /* =========================
+  /* =========================================================
      LOAD PROPERTY
-  ========================= */
+  ========================================================= */
 
   useEffect(() => {
     const loadProperty = async () => {
-      if (!propertyId || authLoading || !session) {
+      if (
+        !propertyId ||
+        authLoading ||
+        !session
+      ) {
         return;
       }
 
@@ -113,7 +135,10 @@ export default function PropertyDetailsPage() {
         setLoading(true);
 
         const response = await fetch(
-          `${API_URL}/api/properties/${propertyId}`
+          `${API_URL}/api/properties/${propertyId}`,
+          {
+            cache: "no-store",
+          }
         );
 
         const data = await response.json();
@@ -148,12 +173,68 @@ export default function PropertyDetailsPage() {
     session,
   ]);
 
-  /* =========================
-     HANDLERS
-  ========================= */
+  /* =========================================================
+     CHECK FAVORITE
+  ========================================================= */
+
+  useEffect(() => {
+    const checkFavorite = async () => {
+      if (
+        !propertyId ||
+        !session?.user ||
+        session.user.role !== "tenant"
+      ) {
+        return;
+      }
+
+      try {
+        const tokenResponse =
+          await authClient.token();
+
+        const token =
+          tokenResponse?.data?.token;
+
+        if (!token) return;
+
+        const response = await fetch(
+          `${API_URL}/api/favorites/check/${propertyId}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+            },
+            cache: "no-store",
+          }
+        );
+
+        const data =
+          await response.json();
+
+        if (response.ok) {
+          setFavorite(
+            Boolean(data?.isFavorite)
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Favorite check error:",
+          error
+        );
+      }
+    };
+
+    checkFavorite();
+  }, [propertyId, session]);
+
+  /* =========================================================
+     IMAGE HANDLERS
+  ========================================================= */
 
   const handlePreviousImage = () => {
-    if (!property?.images?.length) return;
+    if (!property?.images?.length) {
+      return;
+    }
 
     setActiveImage((current) =>
       current === 0
@@ -163,7 +244,9 @@ export default function PropertyDetailsPage() {
   };
 
   const handleNextImage = () => {
-    if (!property?.images?.length) return;
+    if (!property?.images?.length) {
+      return;
+    }
 
     setActiveImage((current) =>
       current === property.images.length - 1
@@ -172,8 +255,15 @@ export default function PropertyDetailsPage() {
     );
   };
 
+  /* =========================================================
+     INPUT HANDLER
+  ========================================================= */
+
   const handleInputChange = (event) => {
-    const { name, value } = event.target;
+    const {
+      name,
+      value,
+    } = event.target;
 
     setFormData((current) => ({
       ...current,
@@ -181,15 +271,134 @@ export default function PropertyDetailsPage() {
     }));
   };
 
-  const openBookingModal = () => {
-    if (!session) {
+  /* =========================================================
+     FAVORITE
+  ========================================================= */
+
+  const handleFavorite = async () => {
+    if (!session?.user) {
       router.push(
         `/login?callbackUrl=/property/${propertyId}`
       );
       return;
     }
 
-    if (session.user?.role !== "tenant") {
+    if (
+      session.user.role !== "tenant"
+    ) {
+      toast.error(
+        "Only tenants can save favorites."
+      );
+      return;
+    }
+
+    if (favoriteLoading) {
+      return;
+    }
+
+    try {
+      setFavoriteLoading(true);
+
+      const tokenResponse =
+        await authClient.token();
+
+      const token =
+        tokenResponse?.data?.token;
+
+      if (!token) {
+        toast.error(
+          "Authentication token not found."
+        );
+        return;
+      }
+
+      if (favorite) {
+        const response = await fetch(
+          `${API_URL}/api/favorites/${propertyId}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+            },
+          }
+        );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              "Failed to remove favorite."
+          );
+        }
+
+        setFavorite(false);
+
+        toast.success(
+          "Removed from favorites."
+        );
+
+        return;
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/favorites/${propertyId}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            "Failed to add favorite."
+        );
+      }
+
+      setFavorite(true);
+
+      toast.success(
+        "Added to favorites."
+      );
+    } catch (error) {
+      console.error(
+        "Favorite error:",
+        error
+      );
+
+      toast.error(
+        error.message ||
+          "Something went wrong."
+      );
+    } finally {
+      setFavoriteLoading(false);
+    }
+  };
+
+  /* =========================================================
+     BOOKING MODAL
+  ========================================================= */
+
+  const openBookingModal = () => {
+    if (!session?.user) {
+      router.push(
+        `/login?callbackUrl=/property/${propertyId}`
+      );
+      return;
+    }
+
+    if (
+      session.user.role !== "tenant"
+    ) {
       toast.error(
         "Only tenants can book a property."
       );
@@ -200,30 +409,25 @@ export default function PropertyDetailsPage() {
   };
 
   const closeBookingModal = () => {
-    if (bookingLoading) return;
+    if (bookingLoading) {
+      return;
+    }
 
     setBookingOpen(false);
   };
 
-  const handleFavorite = () => {
-    /*
-      Favorite backend will be connected
-      in the next step.
-    */
+  /* =========================================================
+     BOOKING → PAYMENT
+  ========================================================= */
 
-    setFavorite((current) => !current);
-
-    toast.success(
-      favorite
-        ? "Removed from favorites."
-        : "Added to favorites."
-    );
-  };
-
-  const handleBookingSubmit = async (event) => {
+  const handleBookingSubmit = async (
+    event
+  ) => {
     event.preventDefault();
 
-    if (!property) return;
+    if (!property) {
+      return;
+    }
 
     if (!session?.user) {
       toast.error(
@@ -237,11 +441,12 @@ export default function PropertyDetailsPage() {
       return;
     }
 
-    if (session.user.role !== "tenant") {
+    if (
+      session.user.role !== "tenant"
+    ) {
       toast.error(
         "Only tenants can book a property."
       );
-
       return;
     }
 
@@ -249,7 +454,6 @@ export default function PropertyDetailsPage() {
       toast.error(
         "Please select a move-in date."
       );
-
       return;
     }
 
@@ -257,7 +461,6 @@ export default function PropertyDetailsPage() {
       toast.error(
         "Please enter your contact number."
       );
-
       return;
     }
 
@@ -268,104 +471,44 @@ export default function PropertyDetailsPage() {
       toast.error(
         "Duration must be at least 1."
       );
-
       return;
     }
 
     try {
       setBookingLoading(true);
 
-      const tokenResponse =
-        await authClient.token();
-
-      const token =
-        tokenResponse?.data?.token;
-
-      if (!token) {
-        toast.error(
-          "Authentication token not found."
-        );
-
-        return;
-      }
-
-      const response = await fetch(
-        `${API_URL}/api/bookings`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            propertyId,
-            moveInDate:
-              formData.moveInDate,
-            duration:
-              Number(formData.duration),
-            phone:
-              formData.phone.trim(),
-            additionalNotes:
-              formData.additionalNotes.trim(),
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.message ||
-            "Failed to create booking."
-        );
-      }
-
-      toast.success(
-        "Booking request created successfully."
-      );
+      const query = new URLSearchParams({
+        propertyId: String(propertyId),
+        moveInDate: formData.moveInDate,
+        phone: formData.phone.trim(),
+        additionalNotes:
+          formData.additionalNotes.trim(),
+        duration: String(formData.duration),
+      });
 
       setBookingOpen(false);
 
-      setFormData({
-        moveInDate: "",
-        phone: "",
-        additionalNotes: "",
-        duration: 1,
-      });
-
-      /*
-        Payment page will be connected
-        after Stripe integration.
-      */
-
-      if (data?.booking?._id) {
-        router.push(
-          `/dashboard/tenant?booking=${data.booking._id}`
-        );
-      } else {
-        router.push(
-          "/dashboard/tenant"
-        );
-      }
+      router.push(
+        `/payment?${query.toString()}`
+      );
     } catch (error) {
       console.error(
-        "Booking error:",
+        "Payment redirect error:",
         error
       );
 
       toast.error(
         error.message ||
-          "Failed to create booking."
+          "Unable to continue to payment."
       );
     } finally {
       setBookingLoading(false);
     }
   };
 
-  /* =========================
+  /* =========================================================
      LOADING
-  ========================= */
+  ========================================================= */
 
   if (
     authLoading ||
@@ -398,42 +541,54 @@ export default function PropertyDetailsPage() {
     );
   }
 
-  /* =========================
-     ERROR / NOT FOUND
-  ========================= */
+  /* =========================================================
+     NOT FOUND
+  ========================================================= */
 
   if (!property) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-zinc-950">
-        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/40">
-            <Home className="h-7 w-7 text-red-500" />
+      <>
+        <ToastContainer
+          position="top-right"
+          autoClose={3000}
+          theme="dark"
+        />
+
+        <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-zinc-950">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/40">
+              <Home className="h-7 w-7 text-red-500" />
+            </div>
+
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+              Property Not Found
+            </h1>
+
+            <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              This property may have been
+              removed, rejected, or is no
+              longer available.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push("/properties")
+              }
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Properties
+            </button>
           </div>
-
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-            Property Not Found
-          </h1>
-
-          <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            This property may have been
-            removed, rejected, or is no
-            longer available.
-          </p>
-
-          <button
-            type="button"
-            onClick={() =>
-              router.push("/properties")
-            }
-            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Properties
-          </button>
-        </div>
-      </main>
+        </main>
+      </>
     );
   }
+
+  /* =========================================================
+     DATA
+  ========================================================= */
 
   const images =
     property.images?.length > 0
@@ -445,8 +600,7 @@ export default function PropertyDetailsPage() {
   const currentImage =
     images[activeImage] || images[0];
 
-  const user =
-    session?.user || {};
+  const user = session?.user || {};
 
   const isTenant =
     user.role === "tenant";
@@ -455,11 +609,22 @@ export default function PropertyDetailsPage() {
     Number(property.rent || 0) *
     Number(formData.duration || 1);
 
+  /* =========================================================
+     UI
+  ========================================================= */
+
   return (
     <>
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        theme="dark"
+      />
+
       <main className="min-h-screen bg-slate-50 pb-20 dark:bg-zinc-950">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          {/* BACK BUTTON */}
+
+          {/* BACK */}
 
           <button
             type="button"
@@ -472,10 +637,11 @@ export default function PropertyDetailsPage() {
             Back to Properties
           </button>
 
-          {/* IMAGE + BASIC INFO */}
+          {/* MAIN PROPERTY */}
 
           <section className="grid gap-8 lg:grid-cols-[1.5fr_1fr]">
-            {/* GALLERY */}
+
+            {/* IMAGE GALLERY */}
 
             <div>
               <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -493,7 +659,7 @@ export default function PropertyDetailsPage() {
                       "Approved"}
                   </div>
 
-                  {/* IMAGE COUNTER */}
+                  {/* COUNTER */}
 
                   {images.length > 1 && (
                     <div className="absolute right-5 top-5 rounded-full bg-black/60 px-4 py-2 text-xs font-semibold text-white backdrop-blur">
@@ -522,7 +688,9 @@ export default function PropertyDetailsPage() {
                   {images.length > 1 && (
                     <button
                       type="button"
-                      onClick={handleNextImage}
+                      onClick={
+                        handleNextImage
+                      }
                       className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition hover:bg-black/70"
                       aria-label="Next image"
                     >
@@ -537,7 +705,10 @@ export default function PropertyDetailsPage() {
               {images.length > 1 && (
                 <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
                   {images.map(
-                    (image, index) => (
+                    (
+                      image,
+                      index
+                    ) => (
                       <button
                         key={`${image}-${index}`}
                         type="button"
@@ -580,30 +751,39 @@ export default function PropertyDetailsPage() {
                   </h1>
                 </div>
 
+                {/* FAVORITE */}
+
                 <button
                   type="button"
                   onClick={
                     handleFavorite
                   }
+                  disabled={
+                    favoriteLoading
+                  }
                   className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${
                     favorite
                       ? "border-red-200 bg-red-50 text-red-500 dark:border-red-900 dark:bg-red-950/40"
                       : "border-slate-200 bg-white text-slate-500 hover:border-red-200 hover:text-red-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                   aria-label={
                     favorite
                       ? "Remove favorite"
                       : "Add favorite"
                   }
                 >
-                  <Heart
-                    className="h-5 w-5"
-                    fill={
-                      favorite
-                        ? "currentColor"
-                        : "none"
-                    }
-                  />
+                  {favoriteLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Heart
+                      className="h-5 w-5"
+                      fill={
+                        favorite
+                          ? "currentColor"
+                          : "none"
+                      }
+                    />
+                  )}
                 </button>
               </div>
 
@@ -640,14 +820,16 @@ export default function PropertyDetailsPage() {
                 </div>
               </div>
 
-              {/* PROPERTY FEATURES */}
+              {/* FEATURES */}
 
               <div className="mt-6 grid grid-cols-2 gap-3">
+
                 <div className="rounded-2xl border border-slate-200 p-4 dark:border-zinc-800">
                   <BedDouble className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
 
                   <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
-                    {property.bedrooms}
+                    {property.bedrooms ||
+                      0}
                   </p>
 
                   <p className="text-xs text-slate-500 dark:text-zinc-400">
@@ -659,7 +841,8 @@ export default function PropertyDetailsPage() {
                   <Bath className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
 
                   <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
-                    {property.bathrooms}
+                    {property.bathrooms ||
+                      0}
                   </p>
 
                   <p className="text-xs text-slate-500 dark:text-zinc-400">
@@ -671,7 +854,8 @@ export default function PropertyDetailsPage() {
                   <Maximize className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
 
                   <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
-                    {property.size}
+                    {property.size ||
+                      0}
                   </p>
 
                   <p className="text-xs text-slate-500 dark:text-zinc-400">
@@ -690,9 +874,10 @@ export default function PropertyDetailsPage() {
                     Property Type
                   </p>
                 </div>
+
               </div>
 
-              {/* ACTION */}
+              {/* BOOK */}
 
               <button
                 type="button"
@@ -722,6 +907,7 @@ export default function PropertyDetailsPage() {
           {/* DETAILS */}
 
           <section className="mt-8 grid gap-8 lg:grid-cols-[1.5fr_1fr]">
+
             {/* DESCRIPTION */}
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
@@ -744,7 +930,10 @@ export default function PropertyDetailsPage() {
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
                     {property.amenities.map(
-                      (amenity, index) => (
+                      (
+                        amenity,
+                        index
+                      ) => (
                         <div
                           key={`${amenity}-${index}`}
                           className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 dark:bg-zinc-800/70"
@@ -817,14 +1006,12 @@ export default function PropertyDetailsPage() {
 
                 <div className="min-w-0">
                   <h3 className="truncate text-lg font-bold text-slate-950 dark:text-white">
-                    {property.owner
-                      ?.name ||
+                    {property.owner?.name ||
                       "Property Owner"}
                   </h3>
 
                   <p className="mt-1 truncate text-sm text-slate-500 dark:text-zinc-400">
-                    {property.owner
-                      ?.email ||
+                    {property.owner?.email ||
                       "Owner"}
                   </p>
                 </div>
@@ -832,11 +1019,12 @@ export default function PropertyDetailsPage() {
 
               <div className="mt-6 rounded-2xl bg-slate-50 p-4 dark:bg-zinc-800/70">
                 <p className="text-xs leading-5 text-slate-500 dark:text-zinc-400">
-                  This property is managed
-                  by the listed owner.
-                  Contact information is
-                  shared during the booking
-                  process.
+                  This property is
+                  managed by the
+                  listed owner.
+                  Contact information
+                  is shared during the
+                  booking process.
                 </p>
               </div>
 
@@ -853,9 +1041,9 @@ export default function PropertyDetailsPage() {
         </div>
       </main>
 
-      {/* =========================
+      {/* =====================================================
           BOOKING MODAL
-      ========================= */}
+      ===================================================== */}
 
       {bookingOpen && (
         <div
@@ -870,6 +1058,7 @@ export default function PropertyDetailsPage() {
           }}
         >
           <div className="my-8 w-full max-w-2xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
+
             {/* HEADER */}
 
             <div className="flex items-start justify-between border-b border-slate-200 p-6 dark:border-zinc-800 sm:p-7">
@@ -908,6 +1097,7 @@ export default function PropertyDetailsPage() {
               }
               className="space-y-6 p-6 sm:p-7"
             >
+
               {/* PROPERTY */}
 
               <div className="flex gap-4 rounded-2xl bg-slate-50 p-4 dark:bg-zinc-800/70">
@@ -947,6 +1137,7 @@ export default function PropertyDetailsPage() {
                 </label>
 
                 <div className="grid gap-3 sm:grid-cols-2">
+
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
                     <p className="text-xs text-slate-500 dark:text-zinc-500">
                       Name
@@ -968,6 +1159,7 @@ export default function PropertyDetailsPage() {
                         "Email"}
                     </p>
                   </div>
+
                 </div>
               </div>
 
@@ -1008,6 +1200,7 @@ export default function PropertyDetailsPage() {
               {/* PHONE + DURATION */}
 
               <div className="grid gap-5 sm:grid-cols-2">
+
                 <div>
                   <label
                     htmlFor="phone"
@@ -1059,6 +1252,7 @@ export default function PropertyDetailsPage() {
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-zinc-400 dark:focus:ring-zinc-800"
                   />
                 </div>
+
               </div>
 
               {/* NOTES */}
@@ -1109,8 +1303,9 @@ export default function PropertyDetailsPage() {
                   ×{" "}
                   {formData.duration ||
                     1}{" "}
-                  {property.rentType?.toLowerCase() ||
-                    "month"}
+                  {(property.rentType ||
+                    "Monthly"
+                  ).toLowerCase()}
                   {Number(
                     formData.duration
                   ) > 1
@@ -1119,7 +1314,7 @@ export default function PropertyDetailsPage() {
                 </p>
               </div>
 
-              {/* SUBMIT */}
+              {/* PAYMENT BUTTON */}
 
               <button
                 type="submit"
@@ -1129,15 +1324,21 @@ export default function PropertyDetailsPage() {
                 {bookingLoading ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Processing...
+                    Opening Payment...
                   </>
                 ) : (
                   <>
                     <Send className="h-5 w-5" />
-                    Continue Booking
+                    Continue to Payment
                   </>
                 )}
               </button>
+
+              <p className="text-center text-xs text-slate-500 dark:text-zinc-500">
+                You will review your booking
+                information and continue to
+                secure Stripe payment.
+              </p>
             </form>
           </div>
         </div>

@@ -8,8 +8,17 @@ import { auth } from "./config/auth.js";
 
 import uploadRoutes from "./routes/uploadRoutes.js";
 import propertyRoutes from "./routes/propertyRoutes.js";
+
+import adminPropertyRoutes from "./routes/adminPropertyRoutes.js";
+import adminUserRoutes from "./routes/adminUserRoutes.js";
+import adminBookingRoutes from "./routes/adminBookingRoutes.js";
+import adminTransactionRoutes from "./routes/adminTransactionRoutes.js";
+import adminAnalyticsRoutes from "./routes/adminAnalyticsRoutes.js";
+
 import bookingRoutes from "./routes/bookingRoutes.js";
 import ownerAnalyticsRoutes from "./routes/ownerAnalyticsRoutes.js";
+import favoriteRoutes from "./routes/favoriteRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 
 const app = express();
 
@@ -39,13 +48,11 @@ app.all(
 
 /*
 |--------------------------------------------------------------------------
-| BODY PARSER
+| BODY PARSERS
 |--------------------------------------------------------------------------
 */
 
-app.use(
-  express.json()
-);
+app.use(express.json());
 
 app.use(
   express.urlencoded({
@@ -53,17 +60,11 @@ app.use(
   })
 );
 
-/*
-|--------------------------------------------------------------------------
-| COOKIE PARSER
-|--------------------------------------------------------------------------
-*/
-
 app.use(cookieParser());
 
 /*
 |--------------------------------------------------------------------------
-| API ROUTES
+| UPLOAD ROUTES
 |--------------------------------------------------------------------------
 */
 
@@ -72,15 +73,110 @@ app.use(
   uploadRoutes
 );
 
+/*
+|--------------------------------------------------------------------------
+| PUBLIC PROPERTY ROUTES
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/properties",
   propertyRoutes
 );
 
+/*
+|--------------------------------------------------------------------------
+| BOOKING ROUTES
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/bookings",
   bookingRoutes
 );
+
+/*
+|--------------------------------------------------------------------------
+| FAVORITE ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/favorites",
+  favoriteRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENT ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/payments",
+  paymentRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN PROPERTY ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/admin/properties",
+  adminPropertyRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN USER ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/admin/users",
+  adminUserRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN BOOKING ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/admin/bookings",
+  adminBookingRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN TRANSACTION ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/admin/transactions",
+  adminTransactionRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN ANALYTICS ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/admin/analytics",
+  adminAnalyticsRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| OWNER ANALYTICS ROUTES
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   "/api/owner",
@@ -89,21 +185,24 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| HEALTH CHECK
+| ROOT ROUTE
 |--------------------------------------------------------------------------
 */
 
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message:
-      "Property Rental API is running",
-  });
-});
+app.get(
+  "/",
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+      message:
+        "Property Rental API is running",
+    });
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
-| 404
+| 404 ROUTE
 |--------------------------------------------------------------------------
 */
 

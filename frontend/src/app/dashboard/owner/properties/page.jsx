@@ -54,8 +54,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { Separator } from "@/components/ui/separator";
-
 import {
   ToastContainer,
   toast,
@@ -63,8 +61,7 @@ import {
 
 import "react-toastify/dist/ReactToastify.css";
 
-const API_URL =
-  "http://localhost:5000";
+const API_URL = "http://localhost:5000";
 
 /* =========================================================
    STATUS CONFIG
@@ -108,14 +105,11 @@ function formatDate(dateValue) {
     return "N/A";
   }
 
-  return date.toLocaleDateString(
-    "en-US",
-    {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }
-  );
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /* =========================================================
@@ -129,9 +123,9 @@ function formatRent(rent) {
     return "0";
   }
 
-  return new Intl.NumberFormat(
-    "en-US"
-  ).format(number);
+  return new Intl.NumberFormat("en-US").format(
+    number
+  );
 }
 
 /* =========================================================
@@ -148,7 +142,7 @@ function StatusBadge({ status }) {
   return (
     <Badge
       variant="outline"
-      className={`gap-1.5 rounded-full px-3 py-1 font-medium ${config.className}`}
+      className={`gap-1.5 rounded-full border bg-white/90 px-3 py-1 font-medium shadow-sm backdrop-blur-md dark:bg-zinc-950/80 ${config.className}`}
     >
       <Icon
         className={`h-3.5 w-3.5 ${
@@ -167,10 +161,7 @@ function StatusBadge({ status }) {
    PROPERTY IMAGE
 ========================================================= */
 
-function PropertyImage({
-  src,
-  alt,
-}) {
+function PropertyImage({ src, alt }) {
   const [hasError, setHasError] =
     useState(false);
 
@@ -187,12 +178,10 @@ function PropertyImage({
       src={src}
       alt={alt}
       fill
-      sizes="(max-width: 768px) 100vw, 320px"
-      className="object-cover transition duration-300 group-hover:scale-105"
+      sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 360px"
+      className="object-cover transition duration-500 group-hover:scale-105"
       unoptimized
-      onError={() =>
-        setHasError(true)
-      }
+      onError={() => setHasError(true)}
     />
   );
 }
@@ -203,21 +192,23 @@ function PropertyImage({
 
 function LoadingCard() {
   return (
-    <Card className="overflow-hidden border-zinc-200 shadow-sm dark:border-zinc-800">
-      <div className="h-52 animate-pulse bg-zinc-200 dark:bg-zinc-800" />
+    <Card className="w-full max-w-[360px] overflow-hidden rounded-2xl border-zinc-200 shadow-sm dark:border-zinc-800">
+      <div className="aspect-[4/3] animate-pulse bg-zinc-200 dark:bg-zinc-800" />
 
-      <CardContent className="space-y-4 p-5">
-        <div className="h-5 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+      <CardContent className="space-y-4 p-4">
+        <div className="h-6 w-2/3 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
 
         <div className="h-4 w-1/2 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="h-10 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+        <div className="grid grid-cols-3 gap-2">
+          <div className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
 
-          <div className="h-10 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
+
+          <div className="h-14 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
         </div>
 
-        <div className="h-9 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+        <div className="h-9 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
       </CardContent>
     </Card>
   );
@@ -265,10 +256,6 @@ export default function MyPropertiesPage() {
 
   /* =========================================================
      LOAD PROPERTIES
-     
-     IMPORTANT:
-     API request is directly inside useEffect.
-     State updates happen after await.
   ========================================================= */
 
   useEffect(() => {
@@ -276,6 +263,8 @@ export default function MyPropertiesPage() {
 
     const loadProperties = async () => {
       try {
+        setLoading(true);
+
         const tokenResponse =
           await authClient.token();
 
@@ -299,9 +288,11 @@ export default function MyPropertiesPage() {
           `${API_URL}/api/properties/my-properties`,
           {
             method: "GET",
+
             headers: {
               Authorization: `Bearer ${token}`,
             },
+
             credentials: "include",
           }
         );
@@ -318,9 +309,7 @@ export default function MyPropertiesPage() {
 
         if (!cancelled) {
           setProperties(
-            Array.isArray(
-              data?.properties
-            )
+            Array.isArray(data?.properties)
               ? data.properties
               : []
           );
@@ -333,7 +322,7 @@ export default function MyPropertiesPage() {
 
         if (!cancelled) {
           toast.error(
-            error.message ||
+            error?.message ||
               "Failed to load your properties."
           );
         }
@@ -355,94 +344,70 @@ export default function MyPropertiesPage() {
      FILTER PROPERTIES
   ========================================================= */
 
-  const filteredProperties =
-    useMemo(() => {
-      const normalizedSearch =
-        search
-          .trim()
-          .toLowerCase();
+  const filteredProperties = useMemo(() => {
+    const normalizedSearch =
+      search.trim().toLowerCase();
 
-      return properties.filter(
-        (property) => {
-          const matchesSearch =
-            !normalizedSearch ||
-            property.title
-              ?.toLowerCase()
-              .includes(
-                normalizedSearch
-              ) ||
-            property.location
-              ?.toLowerCase()
-              .includes(
-                normalizedSearch
-              ) ||
-            property.type
-              ?.toLowerCase()
-              .includes(
-                normalizedSearch
-              );
+    return properties.filter(
+      (property) => {
+        const matchesSearch =
+          !normalizedSearch ||
+          property.title
+            ?.toLowerCase()
+            .includes(normalizedSearch) ||
+          property.location
+            ?.toLowerCase()
+            .includes(normalizedSearch) ||
+          property.type
+            ?.toLowerCase()
+            .includes(normalizedSearch);
 
-          const matchesStatus =
-            statusFilter === "all" ||
-            property.status ===
-              statusFilter;
+        const matchesStatus =
+          statusFilter === "all" ||
+          property.status === statusFilter;
 
-          return (
-            matchesSearch &&
-            matchesStatus
-          );
-        }
-      );
-    }, [
-      properties,
-      search,
-      statusFilter,
-    ]);
+        return (
+          matchesSearch &&
+          matchesStatus
+        );
+      }
+    );
+  }, [
+    properties,
+    search,
+    statusFilter,
+  ]);
 
   /* =========================================================
      STATISTICS
   ========================================================= */
 
   const statistics = useMemo(() => {
-    const total =
-      properties.length;
-
-    const approved =
-      properties.filter(
-        (property) =>
-          property.status ===
-          "Approved"
-      ).length;
-
-    const pending =
-      properties.filter(
-        (property) =>
-          property.status ===
-          "Pending"
-      ).length;
-
-    const rejected =
-      properties.filter(
-        (property) =>
-          property.status ===
-          "Rejected"
-      ).length;
-
     return {
-      total,
-      approved,
-      pending,
-      rejected,
+      total: properties.length,
+
+      approved: properties.filter(
+        (property) =>
+          property.status === "Approved"
+      ).length,
+
+      pending: properties.filter(
+        (property) =>
+          property.status === "Pending"
+      ).length,
+
+      rejected: properties.filter(
+        (property) =>
+          property.status === "Rejected"
+      ).length,
     };
   }, [properties]);
 
   /* =========================================================
-     DELETE DIALOG
+     DELETE CLICK
   ========================================================= */
 
-  const handleDeleteClick = (
-    property
-  ) => {
+  const handleDeleteClick = (property) => {
     setSelectedProperty(property);
     setDeleteDialogOpen(true);
   };
@@ -472,6 +437,7 @@ export default function MyPropertiesPage() {
         );
 
         router.push("/login");
+
         return;
       }
 
@@ -479,9 +445,11 @@ export default function MyPropertiesPage() {
         `${API_URL}/api/properties/${selectedProperty._id}`,
         {
           method: "DELETE",
+
           headers: {
             Authorization: `Bearer ${token}`,
           },
+
           credentials: "include",
         }
       );
@@ -496,13 +464,12 @@ export default function MyPropertiesPage() {
         );
       }
 
-      setProperties(
-        (current) =>
-          current.filter(
-            (property) =>
-              property._id !==
-              selectedProperty._id
-          )
+      setProperties((current) =>
+        current.filter(
+          (property) =>
+            property._id !==
+            selectedProperty._id
+        )
       );
 
       setDeleteDialogOpen(false);
@@ -518,7 +485,7 @@ export default function MyPropertiesPage() {
       );
 
       toast.error(
-        error.message ||
+        error?.message ||
           "Failed to delete property."
       );
     } finally {
@@ -530,9 +497,7 @@ export default function MyPropertiesPage() {
      EDIT
   ========================================================= */
 
-  const handleEdit = (
-    property
-  ) => {
+  const handleEdit = (property) => {
     router.push(
       `/dashboard/owner/properties/${property._id}/edit`
     );
@@ -542,11 +507,9 @@ export default function MyPropertiesPage() {
      VIEW
   ========================================================= */
 
-  const handleView = (
-    property
-  ) => {
+  const handleView = (property) => {
     router.push(
-      `/properties/${property._id}`
+      `/property/${property._id}`
     );
   };
 
@@ -554,12 +517,9 @@ export default function MyPropertiesPage() {
      FEEDBACK
   ========================================================= */
 
-  const handleFeedback = (
-    property
-  ) => {
+  const handleFeedback = (property) => {
     setSelectedFeedback(
-      property.rejectionFeedback ||
-        ""
+      property.rejectionFeedback || ""
     );
 
     setFeedbackPropertyId(
@@ -567,8 +527,7 @@ export default function MyPropertiesPage() {
     );
 
     setFeedbackPropertyTitle(
-      property.title ||
-        "Property"
+      property.title || "Property"
     );
 
     setFeedbackDialogOpen(true);
@@ -599,9 +558,10 @@ export default function MyPropertiesPage() {
       />
 
       <div className="mx-auto w-full max-w-[1350px] px-4 py-6 sm:px-6 lg:px-8">
-        {/* =====================================================
+
+        {/* =================================================
             HEADER
-        ===================================================== */}
+        ================================================= */}
 
         <div className="mb-7 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -624,10 +584,9 @@ export default function MyPropertiesPage() {
             </h1>
 
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Manage your rental
-              properties, monitor their
-              status, and update your
-              listings.
+              Manage your rental properties,
+              monitor their status, and update
+              your listings.
             </p>
           </div>
 
@@ -645,9 +604,9 @@ export default function MyPropertiesPage() {
           </Button>
         </div>
 
-        {/* =====================================================
+        {/* =================================================
             STATISTICS
-        ===================================================== */}
+        ================================================= */}
 
         <div className="mb-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Card className="border-zinc-200 shadow-sm dark:border-zinc-800">
@@ -723,9 +682,9 @@ export default function MyPropertiesPage() {
           </Card>
         </div>
 
-        {/* =====================================================
+        {/* =================================================
             SEARCH / FILTER
-        ===================================================== */}
+        ================================================= */}
 
         <Card className="mb-7 border-zinc-200 shadow-sm dark:border-zinc-800">
           <CardContent className="p-4 sm:p-5">
@@ -784,9 +743,7 @@ export default function MyPropertiesPage() {
                     "all") && (
                   <Button
                     variant="outline"
-                    onClick={
-                      clearFilters
-                    }
+                    onClick={clearFilters}
                     className="h-11 gap-2"
                   >
                     <XCircle className="h-4 w-4" />
@@ -799,9 +756,9 @@ export default function MyPropertiesPage() {
           </CardContent>
         </Card>
 
-        {/* =====================================================
+        {/* =================================================
             RESULT HEADER
-        ===================================================== */}
+        ================================================= */}
 
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-white">
@@ -820,21 +777,21 @@ export default function MyPropertiesPage() {
           </p>
         </div>
 
-        {/* =====================================================
+        {/* =================================================
             LOADING
-        ===================================================== */}
+        ================================================= */}
 
         {loading && (
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
             <LoadingCard />
             <LoadingCard />
             <LoadingCard />
           </div>
         )}
 
-        {/* =====================================================
+        {/* =================================================
             EMPTY
-        ===================================================== */}
+        ================================================= */}
 
         {!loading &&
           filteredProperties.length ===
@@ -871,15 +828,12 @@ export default function MyPropertiesPage() {
                   >
                     <Plus className="h-4 w-4" />
 
-                    Add Your First
-                    Property
+                    Add Your First Property
                   </Button>
                 ) : (
                   <Button
                     variant="outline"
-                    onClick={
-                      clearFilters
-                    }
+                    onClick={clearFilters}
                     className="mt-6"
                   >
                     Clear Filters
@@ -889,22 +843,23 @@ export default function MyPropertiesPage() {
             </Card>
           )}
 
-        {/* =====================================================
+        {/* =================================================
             PROPERTY GRID
-        ===================================================== */}
+        ================================================= */}
 
         {!loading &&
           filteredProperties.length >
             0 && (
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 items-start gap-6 sm:grid-cols-2 xl:grid-cols-3">
               {filteredProperties.map(
                 (property) => (
                   <Card
                     key={property._id}
-                    className="group overflow-hidden border-zinc-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-zinc-800"
+                    className="group w-full max-w-[360px] overflow-hidden rounded-2xl border-zinc-200 bg-white p-2 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
                   >
-                    {/* Image */}
-                    <div className="relative aspect-[16/10] overflow-hidden bg-zinc-100 dark:bg-zinc-800">
+                    {/* IMAGE */}
+
+                    <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-zinc-100 dark:bg-zinc-800">
                       <PropertyImage
                         src={
                           property.images?.[0]
@@ -915,7 +870,9 @@ export default function MyPropertiesPage() {
                         }
                       />
 
-                      <div className="absolute left-3 top-3">
+                      {/* STATUS */}
+
+                      <div className="absolute left-3 top-3 z-10">
                         <StatusBadge
                           status={
                             property.status
@@ -923,41 +880,42 @@ export default function MyPropertiesPage() {
                         />
                       </div>
 
+                      {/* PROPERTY TYPE */}
+
                       {property.type && (
-                        <div className="absolute bottom-3 left-3 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+                        <div className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-md">
                           {property.type}
+                        </div>
+                      )}
+
+                      {/* PHOTO COUNT */}
+
+                      {property.images?.length >
+                        1 && (
+                        <div className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-md">
+                          {
+                            property.images
+                              .length
+                          }{" "}
+                          Photos
                         </div>
                       )}
                     </div>
 
-                    <CardContent className="p-5">
-                      {/* Title */}
-                      <div className="mb-3">
-                        <h3 className="line-clamp-1 text-lg font-semibold text-zinc-950 dark:text-white">
-                          {property.title}
-                        </h3>
+                    {/* CONTENT */}
 
-                        <div className="mt-1.5 flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400">
-                          <MapPin className="h-3.5 w-3.5 shrink-0" />
+                    <CardContent className="px-2 pb-2 pt-4">
+                      {/* PRICE */}
 
-                          <span className="line-clamp-1">
-                            {
-                              property.location
-                            }
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Rent */}
-                      <div className="mb-4">
-                        <span className="text-xl font-bold text-zinc-950 dark:text-white">
+                      <div className="mb-2">
+                        <span className="text-2xl font-bold tracking-tight text-zinc-950 dark:text-white">
                           ৳
                           {formatRent(
                             property.rent
                           )}
                         </span>
 
-                        <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        <span className="ml-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                           /{" "}
                           {(
                             property.rentType ||
@@ -966,12 +924,29 @@ export default function MyPropertiesPage() {
                         </span>
                       </div>
 
-                      <Separator className="mb-4" />
+                      {/* TITLE */}
 
-                      {/* Info */}
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="rounded-lg bg-zinc-50 p-2.5 text-center dark:bg-zinc-900">
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      <h3 className="line-clamp-2 min-h-[48px] text-base font-semibold leading-6 text-zinc-950 dark:text-white">
+                        {property.title ||
+                          "Untitled Property"}
+                      </h3>
+
+                      {/* LOCATION */}
+
+                      <div className="mt-1.5 flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+                        <MapPin className="h-3.5 w-3.5 shrink-0" />
+
+                        <span className="line-clamp-1">
+                          {property.location ||
+                            "Location not specified"}
+                        </span>
+                      </div>
+
+                      {/* STATS */}
+
+                      <div className="mt-4 grid grid-cols-3 gap-2 border-y border-zinc-100 py-3 dark:border-zinc-800">
+                        <div className="rounded-lg bg-zinc-50 px-2 py-2.5 text-center dark:bg-zinc-900">
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                             Bedrooms
                           </p>
 
@@ -981,8 +956,8 @@ export default function MyPropertiesPage() {
                           </p>
                         </div>
 
-                        <div className="rounded-lg bg-zinc-50 p-2.5 text-center dark:bg-zinc-900">
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        <div className="rounded-lg bg-zinc-50 px-2 py-2.5 text-center dark:bg-zinc-900">
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                             Bathrooms
                           </p>
 
@@ -992,8 +967,8 @@ export default function MyPropertiesPage() {
                           </p>
                         </div>
 
-                        <div className="rounded-lg bg-zinc-50 p-2.5 text-center dark:bg-zinc-900">
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        <div className="rounded-lg bg-zinc-50 px-2 py-2.5 text-center dark:bg-zinc-900">
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                             Size
                           </p>
 
@@ -1001,14 +976,15 @@ export default function MyPropertiesPage() {
                             {property.size ??
                               0}
 
-                            <span className="ml-0.5 text-[10px] font-normal text-zinc-500">
+                            <span className="ml-0.5 text-[9px] font-normal text-zinc-500">
                               sqft
                             </span>
                           </p>
                         </div>
                       </div>
 
-                      {/* Rejection Feedback */}
+                      {/* REJECTION FEEDBACK */}
+
                       {property.status ===
                         "Rejected" &&
                         property.rejectionFeedback && (
@@ -1019,37 +995,41 @@ export default function MyPropertiesPage() {
                                 property
                               )
                             }
-                            className="mt-4 w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-left transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:hover:bg-red-950/50"
+                            className="mt-3 w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-left transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:hover:bg-red-950/50"
                           >
                             <p className="text-xs font-semibold text-red-700 dark:text-red-400">
                               Admin Feedback
                             </p>
 
-                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-red-600/80 dark:text-red-400/80">
+                            <p className="mt-1 line-clamp-1 text-xs text-red-600/80 dark:text-red-400/80">
                               {
                                 property.rejectionFeedback
                               }
                             </p>
 
-                            <p className="mt-1.5 text-[11px] font-medium text-red-700 dark:text-red-400">
-                              Click to view
-                              full feedback
+                            <p className="mt-1 text-[11px] font-medium text-red-700 dark:text-red-400">
+                              Click to view full
+                              feedback
                             </p>
                           </button>
                         )}
 
-                      {/* Date */}
-                      <div className="mt-4 flex items-center gap-1.5 text-xs text-zinc-400">
-                        <CalendarDays className="h-3.5 w-3.5" />
+                      {/* DATE */}
 
-                        Added{" "}
-                        {formatDate(
-                          property.createdAt
-                        )}
+                      <div className="mt-4 flex items-center justify-between text-xs text-zinc-400">
+                        <div className="flex items-center gap-1.5">
+                          <CalendarDays className="h-3.5 w-3.5" />
+
+                          Added{" "}
+                          {formatDate(
+                            property.createdAt
+                          )}
+                        </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="mt-5 grid grid-cols-3 gap-2">
+                      {/* ACTIONS */}
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
                         <Button
                           variant="outline"
                           size="sm"
@@ -1058,7 +1038,7 @@ export default function MyPropertiesPage() {
                               property
                             )
                           }
-                          className="gap-1.5"
+                          className="h-9 gap-1.5 rounded-lg text-xs"
                         >
                           <Eye className="h-3.5 w-3.5" />
 
@@ -1073,7 +1053,7 @@ export default function MyPropertiesPage() {
                               property
                             )
                           }
-                          className="gap-1.5"
+                          className="h-9 gap-1.5 rounded-lg text-xs"
                         >
                           <Edit3 className="h-3.5 w-3.5" />
 
@@ -1088,7 +1068,7 @@ export default function MyPropertiesPage() {
                               property
                             )
                           }
-                          className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+                          className="h-9 gap-1.5 rounded-lg border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
 
@@ -1102,9 +1082,9 @@ export default function MyPropertiesPage() {
             </div>
           )}
 
-        {/* =====================================================
+        {/* =================================================
             DELETE DIALOG
-        ===================================================== */}
+        ================================================= */}
 
         <Dialog
           open={deleteDialogOpen}
@@ -1119,8 +1099,8 @@ export default function MyPropertiesPage() {
               </DialogTitle>
 
               <DialogDescription className="pt-2 leading-6">
-                Are you sure you want
-                to delete{" "}
+                Are you sure you want to
+                delete{" "}
                 <span className="font-semibold text-zinc-900 dark:text-white">
                   {selectedProperty?.title ||
                     "this property"}
@@ -1146,9 +1126,7 @@ export default function MyPropertiesPage() {
               <Button
                 variant="destructive"
                 disabled={deleting}
-                onClick={
-                  handleDelete
-                }
+                onClick={handleDelete}
                 className="gap-2"
               >
                 {deleting ? (
@@ -1169,9 +1147,9 @@ export default function MyPropertiesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* =====================================================
+        {/* =================================================
             FEEDBACK DIALOG
-        ===================================================== */}
+        ================================================= */}
 
         <Dialog
           open={feedbackDialogOpen}
@@ -1190,9 +1168,7 @@ export default function MyPropertiesPage() {
               <DialogDescription>
                 Admin feedback for{" "}
                 <span className="font-medium text-zinc-900 dark:text-white">
-                  {
-                    feedbackPropertyTitle
-                  }
+                  {feedbackPropertyTitle}
                 </span>
               </DialogDescription>
             </DialogHeader>
@@ -1230,9 +1206,7 @@ export default function MyPropertiesPage() {
                     );
 
                   if (property) {
-                    handleEdit(
-                      property
-                    );
+                    handleEdit(property);
                   }
                 }}
                 className="gap-2"
