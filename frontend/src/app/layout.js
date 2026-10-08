@@ -13,13 +13,10 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "Property Rental",
-  description:
-    "Property Rental and Booking Platform",
+  description: "Property Rental and Booking Platform",
 };
 
-export default function RootLayout({
-  children,
-}) {
+export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
