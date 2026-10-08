@@ -1,23 +1,38 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
 import {
   ArrowLeft,
   CalendarDays,
-  CheckCircle2,
   CreditCard,
   Loader2,
   MapPin,
+  Phone,
   ShieldCheck,
   User,
+  WalletCards,
 } from "lucide-react";
-import toast from "react-hot-toast";
+
+import {
+  toast,
+  ToastContainer,
+} from "react-toastify";
+
+import "react-toastify/dist/ReactToastify.css";
 
 import { authClient } from "@/lib/auth-client";
 
-const API_URL = "http://localhost:5000";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:5000";
+
+/*
+|--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
 
 const formatPrice = (price) => {
   return new Intl.NumberFormat("en-BD").format(
@@ -27,7 +42,7 @@ const formatPrice = (price) => {
 
 const formatDate = (date) => {
   if (!date) {
-    return "Not selected";
+    return "Not provided";
   }
 
   const parsedDate = new Date(date);
@@ -36,16 +51,31 @@ const formatDate = (date) => {
     return date;
   }
 
-  return parsedDate.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return parsedDate.toLocaleDateString(
+    "en-BD",
+    {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }
+  );
 };
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENT PAGE
+|--------------------------------------------------------------------------
+*/
 
 export default function PaymentPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  /*
+  |--------------------------------------------------------------------------
+  | QUERY PARAMETERS
+  |--------------------------------------------------------------------------
+  */
 
   const propertyId =
     searchParams.get("propertyId") || "";
@@ -59,55 +89,66 @@ export default function PaymentPage() {
   const additionalNotes =
     searchParams.get("additionalNotes") || "";
 
-  const duration = Number(
-    searchParams.get("duration") || 1
+  const duration = Math.max(
+    Number(
+      searchParams.get("duration") || 1
+    ),
+    1
   );
 
-  const [session, setSession] = useState(null);
-  const [property, setProperty] = useState(null);
+  /*
+  |--------------------------------------------------------------------------
+  | STATE
+  |--------------------------------------------------------------------------
+  */
 
-  const [authLoading, setAuthLoading] =
-    useState(true);
+  const [session, setSession] =
+    useState(null);
 
-  const [propertyLoading, setPropertyLoading] =
+  const [property, setProperty] =
+    useState(null);
+
+  const [loading, setLoading] =
     useState(true);
 
   const [paymentLoading, setPaymentLoading] =
     useState(false);
 
-  const [error, setError] = useState("");
+  /*
+  |--------------------------------------------------------------------------
+  | TOTAL AMOUNT
+  |--------------------------------------------------------------------------
+  */
+
+  const totalAmount = useMemo(() => {
+    return (
+      Number(property?.rent || 0) *
+      duration
+    );
+  }, [property, duration]);
 
   /*
   |--------------------------------------------------------------------------
-  | LOAD USER SESSION
+  | LOAD SESSION + PROPERTY
   |--------------------------------------------------------------------------
   */
 
   useEffect(() => {
-    const loadSession = async () => {
+    let mounted = true;
+
+    const loadData = async () => {
       try {
-        const result =
-          await authClient.getSession();
+        setLoading(true);
 
-        const currentSession =
-          result?.data?.session;
+        /*
+        |--------------------------------------------------------------------------
+        | PROPERTY ID CHECK
+        |--------------------------------------------------------------------------
+        */
 
-        if (!currentSession) {
-          router.replace(
-            `/login?callbackUrl=${encodeURIComponent(
-              `/payment?propertyId=${propertyId}`
-            )}`
-          );
-
-          return;
-        }
-
-        if (
-          currentSession.user?.role !==
-          "tenant"
-        ) {
+        if (!propertyId) {
           toast.error(
-            "Only tenant accounts can make payments."
+            "Property information is missing."
           );
 
           router.replace("/properties");
@@ -115,49 +156,116 @@ export default function PaymentPage() {
           return;
         }
 
-        setSession(currentSession);
-      } catch (sessionError) {
-        console.error(
-          "Payment session error:",
-          sessionError
+        /*
+        |--------------------------------------------------------------------------
+        | GET BETTER AUTH SESSION
+        |--------------------------------------------------------------------------
+        */
+
+        const sessionResult =
+          await authClient.getSession();
+
+        if (!mounted) {
+          return;
+        }
+
+        if (sessionResult?.error) {
+          console.error(
+            "Session error:",
+            sessionResult.error
+          );
+
+          router.replace(
+            `/login?callbackUrl=${encodeURIComponent(
+              `/payment?${searchParams.toString()}`
+            )}`
+          );
+
+          return;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | SESSION + USER
+        |--------------------------------------------------------------------------
+        */
+
+        const sessionData =
+          sessionResult?.data?.session ||
+          null;
+
+        const currentUser =
+          sessionResult?.data?.user ||
+          null;
+
+        /*
+        |--------------------------------------------------------------------------
+        | LOGIN CHECK
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+          !sessionData ||
+          !currentUser
+        ) {
+          router.replace(
+            `/login?callbackUrl=${encodeURIComponent(
+              `/payment?${searchParams.toString()}`
+            )}`
+          );
+
+          return;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | NORMALIZED SESSION
+        |--------------------------------------------------------------------------
+        */
+
+        const normalizedSession = {
+          ...sessionData,
+          user: currentUser,
+        };
+
+        setSession(
+          normalizedSession
         );
 
-        router.replace("/login");
-      } finally {
-        setAuthLoading(false);
-      }
-    };
+        /*
+        |--------------------------------------------------------------------------
+        | ROLE CHECK
+        |--------------------------------------------------------------------------
+        */
 
-    loadSession();
-  }, [propertyId, router]);
+        const role = String(
+          currentUser?.role || ""
+        ).toLowerCase();
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD PROPERTY
-  |--------------------------------------------------------------------------
-  */
+        if (role !== "tenant") {
+          toast.error(
+            "Only tenants can make property payments."
+          );
 
-  useEffect(() => {
-    const loadProperty = async () => {
-      if (
-        authLoading ||
-        !session ||
-        !propertyId
-      ) {
-        return;
-      }
+          router.replace("/");
 
-      try {
-        setPropertyLoading(true);
-        setError("");
+          return;
+        }
 
-        const response = await fetch(
-          `${API_URL}/api/properties/${propertyId}`,
-          {
-            method: "GET",
-            cache: "no-store",
-          }
-        );
+        /*
+        |--------------------------------------------------------------------------
+        | LOAD PROPERTY
+        |--------------------------------------------------------------------------
+        */
+
+        const response =
+          await fetch(
+            `${API_URL}/api/properties/${propertyId}`,
+            {
+              method: "GET",
+              cache: "no-store",
+            }
+          );
 
         const data =
           await response.json();
@@ -169,51 +277,42 @@ export default function PaymentPage() {
           );
         }
 
-        if (!data?.property) {
-          throw new Error(
-            "Property information was not found."
-          );
+        if (!mounted) {
+          return;
         }
 
-        setProperty(data.property);
-      } catch (propertyError) {
+        setProperty(
+          data?.property || null
+        );
+      } catch (error) {
         console.error(
-          "Payment property error:",
-          propertyError
+          "Payment page loading error:",
+          error
         );
 
-        setError(
-          propertyError.message ||
-            "Failed to load property."
-        );
+        if (mounted) {
+          toast.error(
+            error?.message ||
+              "Unable to load payment information."
+          );
+        }
       } finally {
-        setPropertyLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
-    loadProperty();
+    loadData();
+
+    return () => {
+      mounted = false;
+    };
   }, [
-    authLoading,
-    session,
     propertyId,
+    router,
+    searchParams,
   ]);
-
-  /*
-  |--------------------------------------------------------------------------
-  | TOTAL AMOUNT
-  |--------------------------------------------------------------------------
-  */
-
-  const totalAmount = useMemo(() => {
-    if (!property) {
-      return 0;
-    }
-
-    return (
-      Number(property.rent || 0) *
-      Number(duration || 1)
-    );
-  }, [property, duration]);
 
   /*
   |--------------------------------------------------------------------------
@@ -226,6 +325,12 @@ export default function PaymentPage() {
       return;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | SESSION CHECK
+    |--------------------------------------------------------------------------
+    */
+
     if (!session?.user) {
       toast.error(
         "Please login before making payment."
@@ -233,16 +338,49 @@ export default function PaymentPage() {
 
       router.push(
         `/login?callbackUrl=${encodeURIComponent(
-          `/payment?propertyId=${propertyId}`
+          `/payment?${searchParams.toString()}`
         )}`
       );
 
       return;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | CURRENT USER
+    |--------------------------------------------------------------------------
+    */
+
+    const currentUser =
+      session.user;
+
+    /*
+    |--------------------------------------------------------------------------
+    | ROLE CHECK
+    |--------------------------------------------------------------------------
+    */
+
+    const role = String(
+      currentUser?.role || ""
+    ).toLowerCase();
+
+    if (role !== "tenant") {
+      toast.error(
+        "Only tenants can make payments."
+      );
+
+      return;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PROPERTY CHECK
+    |--------------------------------------------------------------------------
+    */
+
     if (!property) {
       toast.error(
-        "Property information is unavailable."
+        "Property information is not available."
       );
 
       return;
@@ -256,6 +394,12 @@ export default function PaymentPage() {
       return;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | MOVE-IN DATE
+    |--------------------------------------------------------------------------
+    */
+
     if (!moveInDate) {
       toast.error(
         "Move-in date is missing."
@@ -264,9 +408,15 @@ export default function PaymentPage() {
       return;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | DURATION
+    |--------------------------------------------------------------------------
+    */
+
     if (
       !duration ||
-      Number(duration) < 1
+      duration < 1
     ) {
       toast.error(
         "Invalid booking duration."
@@ -275,9 +425,79 @@ export default function PaymentPage() {
       return;
     }
 
-    if (!phone.trim()) {
+    /*
+    |--------------------------------------------------------------------------
+    | RENT
+    |--------------------------------------------------------------------------
+    */
+
+    const monthlyRent =
+      Number(
+        property?.rent || 0
+      );
+
+    if (
+      !monthlyRent ||
+      monthlyRent <= 0
+    ) {
       toast.error(
-        "Contact number is missing."
+        "Invalid rental price."
+      );
+
+      return;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | TENANT INFORMATION
+    |--------------------------------------------------------------------------
+    |
+    | Get directly from Better Auth session.
+    |
+    */
+
+    const tenantId =
+      currentUser?.id ||
+      currentUser?._id ||
+      "";
+
+    const tenantName =
+      currentUser?.name ||
+      currentUser?.fullName ||
+      "Tenant";
+
+    const tenantEmail =
+      currentUser?.email ||
+      "";
+
+    const tenantPhoto =
+      currentUser?.image ||
+      currentUser?.photo ||
+      currentUser?.avatar ||
+      "";
+
+    /*
+    |--------------------------------------------------------------------------
+    | TENANT VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
+    if (!tenantId) {
+      console.error(
+        "Tenant ID missing:",
+        currentUser
+      );
+
+      toast.error(
+        "Tenant information is missing. Please login again."
+      );
+
+      return;
+    }
+
+    if (!tenantEmail) {
+      toast.error(
+        "Tenant email is missing from your account."
       );
 
       return;
@@ -292,15 +512,19 @@ export default function PaymentPage() {
       |--------------------------------------------------------------------------
       */
 
-      const tokenResponse =
-        await authClient.token();
+      let token = null;
 
-      const token =
-        tokenResponse?.data?.token;
+      try {
+        const tokenResponse =
+          await authClient.token();
 
-      if (!token) {
-        throw new Error(
-          "Authentication token not found. Please login again."
+        token =
+          tokenResponse?.data?.token ||
+          null;
+      } catch (tokenError) {
+        console.warn(
+          "JWT token could not be retrieved:",
+          tokenError
         );
       }
 
@@ -310,124 +534,160 @@ export default function PaymentPage() {
       |--------------------------------------------------------------------------
       */
 
-      const response = await fetch(
-        `${API_URL}/api/payments/create-checkout-session`,
-        {
-          method: "POST",
+      const response =
+        await fetch(
+          `${API_URL}/api/payments/create-checkout-session`,
+          {
+            method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
+            headers: {
+              "Content-Type":
+                "application/json",
 
-            Authorization:
-              `Bearer ${token}`,
-          },
+              ...(token
+                ? {
+                    Authorization: `Bearer ${token}`,
+                  }
+                : {}),
+            },
 
-          body: JSON.stringify({
-            propertyId,
+            credentials: "include",
 
-            propertyTitle:
-              property.title,
+            body: JSON.stringify({
+              /*
+              |--------------------------------------------------------------------------
+              | PROPERTY
+              |--------------------------------------------------------------------------
+              */
 
-            rent:
-              Number(property.rent),
+              propertyId,
 
-            rentType:
-              property.rentType ||
-              "Monthly",
+              propertyTitle:
+                property?.title ||
+                "Property Booking",
 
-            moveInDate,
+              rent:
+                monthlyRent,
 
-            duration:
-              Number(duration),
+              rentType:
+                property?.rentType ||
+                "Monthly",
 
-            phone:
-              phone.trim(),
+              /*
+              |--------------------------------------------------------------------------
+              | BOOKING
+              |--------------------------------------------------------------------------
+              */
 
-            additionalNotes:
-              additionalNotes.trim(),
-          }),
-        }
-      );
+              moveInDate,
+
+              duration,
+
+              phone,
+
+              additionalNotes,
+
+              /*
+              |--------------------------------------------------------------------------
+              | TENANT
+              |--------------------------------------------------------------------------
+              */
+
+              tenantId,
+
+              tenantName,
+
+              tenantEmail,
+
+              tenantPhoto,
+            }),
+          }
+        );
 
       /*
       |--------------------------------------------------------------------------
-      | READ RESPONSE SAFELY
+      | READ RESPONSE
       |--------------------------------------------------------------------------
       */
 
-      const responseText =
-        await response.text();
-
-      let data = {};
-
-      try {
-        data = responseText
-          ? JSON.parse(responseText)
-          : {};
-      } catch {
-        data = {};
-      }
+      const data =
+        await response.json();
 
       /*
       |--------------------------------------------------------------------------
-      | BACKEND ERROR
+      | API ERROR
       |--------------------------------------------------------------------------
       */
 
       if (!response.ok) {
-        console.error(
-          "Payment API error:",
-          {
-            status: response.status,
-            data,
-            responseText,
-          }
-        );
-
         throw new Error(
           data?.message ||
-            `Payment server error (${response.status}).`
+            "Unable to create Stripe checkout session."
         );
       }
 
       /*
       |--------------------------------------------------------------------------
-      | CHECK STRIPE URL
+      | STRIPE CHECKOUT URL
       |--------------------------------------------------------------------------
       */
 
-      if (!data?.checkoutUrl) {
-        console.error(
-          "Stripe checkout URL missing:",
-          data
+      if (data?.checkoutUrl) {
+        window.location.assign(
+          data.checkoutUrl
         );
 
-        throw new Error(
-          "Stripe checkout URL was not returned by the server."
-        );
+        return;
       }
 
       /*
       |--------------------------------------------------------------------------
-      | REDIRECT TO STRIPE
+      | FALLBACK URL
       |--------------------------------------------------------------------------
       */
 
-      window.location.assign(
-        data.checkoutUrl
+      if (data?.url) {
+        window.location.assign(
+          data.url
+        );
+
+        return;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FALLBACK SESSION URL
+      |--------------------------------------------------------------------------
+      */
+
+      if (data?.sessionUrl) {
+        window.location.assign(
+          data.sessionUrl
+        );
+
+        return;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | NO URL
+      |--------------------------------------------------------------------------
+      */
+
+      throw new Error(
+        "Stripe checkout URL was not returned by the server."
       );
-    } catch (paymentError) {
+    } catch (error) {
       console.error(
-        "Payment error:",
-        paymentError
+        "Stripe payment error:",
+        error
       );
 
       toast.error(
-        paymentError?.message ||
+        error?.message ||
           "Unable to start payment."
       );
-
+    } finally {
       setPaymentLoading(false);
     }
   };
@@ -438,416 +698,446 @@ export default function PaymentPage() {
   |--------------------------------------------------------------------------
   */
 
-  if (
-    authLoading ||
-    propertyLoading
-  ) {
+  if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-12 dark:bg-zinc-950">
-        <div className="mx-auto max-w-5xl">
-          <div className="animate-pulse">
-            <div className="h-6 w-32 rounded bg-slate-200 dark:bg-zinc-800" />
+      <>
+        <ToastContainer
+          position="top-right"
+          autoClose={3000}
+          theme="dark"
+        />
 
-            <div className="mt-8 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-              <div className="h-[500px] rounded-3xl bg-slate-200 dark:bg-zinc-800" />
+        <main className="min-h-screen bg-slate-50 px-4 py-12 dark:bg-zinc-950">
+          <div className="mx-auto max-w-6xl">
+            <div className="animate-pulse">
+              <div className="mb-8 h-7 w-40 rounded bg-slate-200 dark:bg-zinc-800" />
 
-              <div className="space-y-4">
-                <div className="h-12 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+              <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr]">
+                <div className="h-[500px] rounded-3xl bg-slate-200 dark:bg-zinc-800" />
 
-                <div className="h-32 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+                <div className="space-y-4">
+                  <div className="h-10 w-3/4 rounded bg-slate-200 dark:bg-zinc-800" />
 
-                <div className="h-32 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+                  <div className="h-24 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
 
-                <div className="h-16 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+                  <div className="h-14 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+
+                  <div className="h-14 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+
+                  <div className="h-14 rounded-2xl bg-slate-200 dark:bg-zinc-800" />
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     );
   }
 
   /*
   |--------------------------------------------------------------------------
-  | ERROR
+  | PROPERTY NOT FOUND
   |--------------------------------------------------------------------------
   */
 
-  if (error || !property) {
+  if (!property) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-zinc-950">
-        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/40">
-            <CreditCard className="h-7 w-7 text-red-500" />
+      <>
+        <ToastContainer
+          position="top-right"
+          autoClose={3000}
+          theme="dark"
+        />
+
+        <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-zinc-950">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/40">
+              <CreditCard className="h-7 w-7 text-red-500" />
+            </div>
+
+            <h1 className="mt-5 text-2xl font-bold text-slate-950 dark:text-white">
+              Payment Information Not Found
+            </h1>
+
+            <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              We could not load the selected
+              property information.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/properties"
+                )
+              }
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-zinc-950"
+            >
+              <ArrowLeft className="h-4 w-4" />
+
+              Back to Properties
+            </button>
           </div>
-
-          <h1 className="mt-5 text-2xl font-bold text-slate-950 dark:text-white">
-            Payment Unavailable
-          </h1>
-
-          <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            {error ||
-              "We could not load the property information required for payment."}
-          </p>
-
-          <button
-            type="button"
-            onClick={() =>
-              router.push(
-                propertyId
-                  ? `/property/${propertyId}`
-                  : "/properties"
-              )
-            }
-            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </button>
-        </div>
-      </main>
+        </main>
+      </>
     );
   }
 
   /*
   |--------------------------------------------------------------------------
-  | PAYMENT PAGE
+  | MAIN PAGE
   |--------------------------------------------------------------------------
   */
 
   return (
-    <main className="min-h-screen bg-slate-50 pb-20 dark:bg-zinc-950">
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* BACK */}
+    <>
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        theme="dark"
+      />
 
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              `/property/${propertyId}`
-            )
-          }
-          className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-950 dark:text-zinc-400 dark:hover:text-white"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Property
-        </button>
+      <main className="min-h-screen bg-slate-50 pb-20 dark:bg-zinc-950">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
 
-        {/* HEADER */}
+          {/* BACK */}
 
-        <div className="mb-8">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-            Secure Checkout
-          </p>
+          <button
+            type="button"
+            onClick={() =>
+              router.back()
+            }
+            className="mb-7 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-950 dark:text-zinc-400 dark:hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
 
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-4xl">
-            Complete Your Payment
-          </h1>
+          {/* HEADER */}
 
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            Review your booking information
-            before continuing to secure payment.
-          </p>
-        </div>
+          <div className="mb-8">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-zinc-500">
+              Secure Checkout
+            </p>
 
-        {/* CONTENT */}
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-4xl">
+              Complete Your Payment
+            </h1>
 
-        <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-          {/* LEFT */}
-
-          <div className="space-y-6">
-            {/* PROPERTY */}
-
-            <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <div className="relative h-72 w-full overflow-hidden sm:h-96">
-                {property.images?.[0] ? (
-                  <Image
-                    src={property.images[0]}
-                    alt={
-                      property.title ||
-                      "Property image"
-                    }
-                    fill
-                    sizes="(max-width: 768px) 100vw, 66vw"
-                    className="object-cover"
-                    unoptimized
-                    priority
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center bg-slate-100 text-slate-400 dark:bg-zinc-800">
-                    <CreditCard className="h-12 w-12" />
-                  </div>
-                )}
-
-                <div className="absolute left-5 top-5 rounded-full bg-emerald-500 px-4 py-2 text-xs font-bold text-white shadow-lg">
-                  Approved Property
-                </div>
-              </div>
-
-              <div className="p-6 sm:p-8">
-                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
-                  {property.type}
-                </span>
-
-                <h2 className="mt-4 text-2xl font-bold text-slate-950 dark:text-white">
-                  {property.title}
-                </h2>
-
-                <div className="mt-4 flex items-start gap-2 text-sm text-slate-500 dark:text-zinc-400">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-
-                  <span>
-                    {property.location}
-                  </span>
-                </div>
-
-                <div className="mt-6 rounded-2xl bg-slate-50 p-5 dark:bg-zinc-800/70">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-500">
-                    Rental Price
-                  </p>
-
-                  <div className="mt-2 flex items-end gap-2">
-                    <span className="text-3xl font-bold text-slate-950 dark:text-white">
-                      ৳
-                      {formatPrice(
-                        property.rent
-                      )}
-                    </span>
-
-                    <span className="pb-1 text-sm text-slate-500 dark:text-zinc-400">
-                      /{" "}
-                      {property.rentType ||
-                        "Monthly"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* USER */}
-
-            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 dark:bg-zinc-800">
-                  <User className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
-                </div>
-
-                <div>
-                  <h2 className="text-lg font-bold text-slate-950 dark:text-white">
-                    Tenant Information
-                  </h2>
-
-                  <p className="text-sm text-slate-500 dark:text-zinc-400">
-                    Information associated with
-                    your account
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                  <p className="text-xs text-slate-500 dark:text-zinc-500">
-                    Name
-                  </p>
-
-                  <p className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
-                    {session?.user?.name ||
-                      "Tenant"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                  <p className="text-xs text-slate-500 dark:text-zinc-500">
-                    Email
-                  </p>
-
-                  <p className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
-                    {session?.user?.email ||
-                      "Email"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                  <p className="text-xs text-slate-500 dark:text-zinc-500">
-                    Contact Number
-                  </p>
-
-                  <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                    {phone ||
-                      "Not provided"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                  <p className="text-xs text-slate-500 dark:text-zinc-500">
-                    Move-in Date
-                  </p>
-
-                  <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                    {formatDate(
-                      moveInDate
-                    )}
-                  </p>
-                </div>
-              </div>
-            </section>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              Review your booking details before
+              continuing to secure payment with
+              Stripe.
+            </p>
           </div>
 
-          {/* RIGHT */}
+          {/* CONTENT */}
 
-          <aside className="h-fit lg:sticky lg:top-6">
-            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-7">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 dark:bg-zinc-800">
-                  <CreditCard className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
+          <div className="grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
+
+            {/* LEFT */}
+
+            <section className="space-y-6">
+
+              {/* PROPERTY */}
+
+              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+
+                <div className="relative h-72 w-full overflow-hidden">
+                  <img
+                    src={
+                      property.images?.[0] ||
+                      "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1200&q=80"
+                    }
+                    alt={
+                      property.title ||
+                      "Property"
+                    }
+                    className="h-full w-full object-cover"
+                  />
                 </div>
 
-                <div>
-                  <h2 className="text-xl font-bold text-slate-950 dark:text-white">
-                    Payment Summary
+                <div className="p-6 sm:p-7">
+
+                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
+                    {property.type ||
+                      property.propertyType ||
+                      "Property"}
+                  </span>
+
+                  <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-white">
+                    {property.title}
                   </h2>
 
-                  <p className="text-xs text-slate-500 dark:text-zinc-500">
-                    Review before payment
-                  </p>
+                  <div className="mt-3 flex items-start gap-2 text-sm text-slate-500 dark:text-zinc-400">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+
+                    <span>
+                      {property.location ||
+                        "Location unavailable"}
+                    </span>
+                  </div>
+
                 </div>
               </div>
 
               {/* BOOKING DETAILS */}
 
+              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-7">
+
+                <h2 className="text-xl font-bold text-slate-950 dark:text-white">
+                  Booking Details
+                </h2>
+
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+
+                  {/* MOVE IN */}
+
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-zinc-800/60">
+
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                      <CalendarDays className="h-4 w-4" />
+
+                      <span className="text-xs font-medium">
+                        Move-in Date
+                      </span>
+                    </div>
+
+                    <p className="mt-2 text-sm font-semibold text-slate-950 dark:text-white">
+                      {formatDate(
+                        moveInDate
+                      )}
+                    </p>
+
+                  </div>
+
+                  {/* DURATION */}
+
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-zinc-800/60">
+
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                      <CalendarDays className="h-4 w-4" />
+
+                      <span className="text-xs font-medium">
+                        Duration
+                      </span>
+                    </div>
+
+                    <p className="mt-2 text-sm font-semibold text-slate-950 dark:text-white">
+                      {duration}{" "}
+                      {duration === 1
+                        ? "month"
+                        : "months"}
+                    </p>
+
+                  </div>
+
+                  {/* PHONE */}
+
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-zinc-800/60">
+
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                      <Phone className="h-4 w-4" />
+
+                      <span className="text-xs font-medium">
+                        Contact Number
+                      </span>
+                    </div>
+
+                    <p className="mt-2 truncate text-sm font-semibold text-slate-950 dark:text-white">
+                      {phone ||
+                        "Not provided"}
+                    </p>
+
+                  </div>
+
+                  {/* TENANT */}
+
+                  <div className="rounded-2xl bg-slate-50 p-4 dark:bg-zinc-800/60">
+
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                      <User className="h-4 w-4" />
+
+                      <span className="text-xs font-medium">
+                        Tenant
+                      </span>
+                    </div>
+
+                    <p className="mt-2 truncate text-sm font-semibold text-slate-950 dark:text-white">
+                      {session?.user?.name ||
+                        session?.user?.email ||
+                        "Tenant"}
+                    </p>
+
+                  </div>
+
+                </div>
+
+                {/* NOTES */}
+
+                {additionalNotes && (
+                  <div className="mt-5 rounded-2xl border border-slate-200 p-4 dark:border-zinc-800">
+
+                    <p className="text-xs font-semibold text-slate-500 dark:text-zinc-500">
+                      Additional Notes
+                    </p>
+
+                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 dark:text-zinc-300">
+                      {additionalNotes}
+                    </p>
+
+                  </div>
+                )}
+
+              </div>
+            </section>
+
+            {/* RIGHT */}
+
+            <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-7 lg:sticky lg:top-6">
+
+              {/* HEADER */}
+
+              <div className="flex items-center gap-3">
+
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 dark:bg-zinc-800">
+                  <WalletCards className="h-5 w-5 text-slate-700 dark:text-zinc-300" />
+                </div>
+
+                <div>
+
+                  <h2 className="font-bold text-slate-950 dark:text-white">
+                    Payment Summary
+                  </h2>
+
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">
+                    Secure Stripe payment
+                  </p>
+
+                </div>
+              </div>
+
+              {/* PRICE */}
+
               <div className="mt-7 space-y-4">
+
                 <div className="flex items-center justify-between gap-4">
+
                   <span className="text-sm text-slate-500 dark:text-zinc-400">
-                    Rental Price
+                    Monthly Rent
                   </span>
 
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                  <span className="text-sm font-semibold text-slate-950 dark:text-white">
                     ৳
                     {formatPrice(
                       property.rent
                     )}
                   </span>
+
                 </div>
 
                 <div className="flex items-center justify-between gap-4">
+
                   <span className="text-sm text-slate-500 dark:text-zinc-400">
                     Duration
                   </span>
 
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                  <span className="text-sm font-semibold text-slate-950 dark:text-white">
                     {duration}{" "}
-                    {(
-                      property.rentType ||
-                      "Monthly"
-                    ).toLowerCase()}
-                    {duration > 1
-                      ? "s"
-                      : ""}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-slate-500 dark:text-zinc-400">
-                    Move-in Date
+                    {duration === 1
+                      ? "month"
+                      : "months"}
                   </span>
 
-                  <span className="flex items-center gap-1 text-right text-sm font-semibold text-slate-900 dark:text-white">
-                    <CalendarDays className="h-4 w-4 text-slate-400" />
-                    {formatDate(
-                      moveInDate
-                    )}
-                  </span>
                 </div>
+
+                <div className="border-t border-slate-200 pt-4 dark:border-zinc-800">
+
+                  <div className="flex items-center justify-between gap-4">
+
+                    <span className="text-base font-semibold text-slate-950 dark:text-white">
+                      Total Amount
+                    </span>
+
+                    <span className="text-2xl font-bold text-slate-950 dark:text-white">
+                      ৳
+                      {formatPrice(
+                        totalAmount
+                      )}
+                    </span>
+
+                  </div>
+
+                </div>
+
               </div>
 
-              {/* TOTAL */}
+              {/* SECURE */}
 
-              <div className="my-6 border-t border-slate-200 pt-6 dark:border-zinc-800">
-                <div className="flex items-end justify-between gap-4">
-                  <span className="text-sm font-semibold text-slate-600 dark:text-zinc-300">
-                    Total Amount
-                  </span>
+              <div className="mt-6 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
 
-                  <span className="text-3xl font-bold text-slate-950 dark:text-white">
-                    ৳
-                    {formatPrice(
-                      totalAmount
-                    )}
-                  </span>
+                <div className="flex items-start gap-3">
+
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+
+                  <div>
+
+                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-300">
+                      Secure Payment
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
+                      Your payment is securely
+                      processed through Stripe.
+                    </p>
+
+                  </div>
+
                 </div>
 
-                <p className="mt-2 text-right text-xs text-slate-500 dark:text-zinc-500">
-                  {formatPrice(
-                    property.rent
-                  )}{" "}
-                  × {duration}
-                </p>
               </div>
 
-              {/* PAYMENT BUTTON */}
+              {/* PAY */}
 
               <button
                 type="button"
                 onClick={handlePayment}
-                disabled={paymentLoading}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 py-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                disabled={
+                  paymentLoading
+                }
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 py-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
+
                 {paymentLoading ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
+
                     Redirecting to Stripe...
                   </>
                 ) : (
                   <>
                     <CreditCard className="h-5 w-5" />
+
                     Pay ৳
                     {formatPrice(
                       totalAmount
                     )}
                   </>
                 )}
+
               </button>
 
-              {/* SECURITY */}
+              <p className="mt-4 text-center text-xs leading-5 text-slate-500 dark:text-zinc-500">
+                By continuing, your booking
+                request will be submitted and
+                payment will be processed securely
+                through Stripe.
+              </p>
 
-              <div className="mt-5 flex items-start gap-3 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
-                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-
-                <div>
-                  <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-300">
-                    Secure Payment
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
-                    Your payment will be securely
-                    processed by Stripe. We do not
-                    store your card information.
-                  </p>
-                </div>
-              </div>
-
-              {/* CHECKLIST */}
-
-              <div className="mt-6 space-y-3">
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  Property information verified
-                </div>
-
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  Booking information received
-                </div>
-
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  Secure Stripe checkout
-                </div>
-              </div>
-            </section>
-          </aside>
+            </aside>
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

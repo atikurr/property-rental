@@ -1,13 +1,9 @@
 "use client";
 
 import { useState } from "react";
-
 import Link from "next/link";
-
 import { useRouter } from "next/navigation";
-
 import { motion } from "framer-motion";
-
 import {
   Mail,
   LockKeyhole,
@@ -22,36 +18,65 @@ import { authClient } from "@/lib/auth-client";
 
 export default function LoginForm() {
   const router = useRouter();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
-  const [showPassword, setShowPassword] =
-    useState(false);
-
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const [socialLoading, setSocialLoading] =
-    useState("");
-
+  const [socialLoading, setSocialLoading] = useState("");
   const [error, setError] = useState("");
 
   // =====================================================
-  // ROLE BASED REDIRECT
+  // GET CALLBACK URL
   // =====================================================
 
-  const redirectByRole = (role) => {
-    if (role === "admin") {
+  const getCallbackUrl = () => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    const callbackUrl = params.get("callbackUrl");
+
+    // Only allow internal routes
+    if (
+      callbackUrl &&
+      callbackUrl.startsWith("/") &&
+      !callbackUrl.startsWith("//")
+    ) {
+      return callbackUrl;
+    }
+
+    return null;
+  };
+
+  // =====================================================
+  // REDIRECT AFTER LOGIN
+  // =====================================================
+
+  const redirectAfterLogin = (role) => {
+    const callbackUrl = getCallbackUrl();
+
+    const normalizedRole = role?.toLowerCase();
+
+    // ---------------------------------------------------
+    // ADMIN
+    // Admin always goes directly to admin dashboard
+    // ---------------------------------------------------
+
+    if (normalizedRole === "admin") {
       router.replace("/dashboard/admin");
       return;
     }
 
-    if (role === "owner") {
-      router.replace("/dashboard/owner");
+    if (callbackUrl) {
+      router.replace(callbackUrl);
       return;
     }
 
-    router.replace("/dashboard/tenant");
+    router.replace("/");
   };
 
   // =====================================================
@@ -74,17 +99,9 @@ export default function LoginForm() {
     try {
       setLoading(true);
 
-      /*
-        ---------------------------------------------------
-        BETTER AUTH EMAIL LOGIN
-        ---------------------------------------------------
-
-        Important:
-        We do NOT send a fixed dashboard callback URL.
-
-        After login, we get the current session and
-        redirect according to the user's actual role.
-      */
+      // ---------------------------------------------------
+      // EMAIL LOGIN
+      // ---------------------------------------------------
 
       const { data, error } =
         await authClient.signIn.email({
@@ -106,9 +123,9 @@ export default function LoginForm() {
         );
       }
 
-      // =================================================
+      // ---------------------------------------------------
       // GET CURRENT SESSION
-      // =================================================
+      // ---------------------------------------------------
 
       const sessionResult =
         await authClient.getSession();
@@ -129,21 +146,23 @@ export default function LoginForm() {
         );
       }
 
-      console.log(
-        "Logged in user:",
-        user
-      );
+      console.log("Logged in user:", user);
 
       console.log(
         "Logged in user role:",
         user.role
       );
 
-      // =================================================
-      // ROLE BASED REDIRECT
-      // =================================================
+      console.log(
+        "Callback URL:",
+        getCallbackUrl()
+      );
 
-      redirectByRole(user.role);
+      // ---------------------------------------------------
+      // REDIRECT
+      // ---------------------------------------------------
+
+      redirectAfterLogin(user.role);
 
       router.refresh();
     } catch (error) {
@@ -165,35 +184,44 @@ export default function LoginForm() {
   // SOCIAL LOGIN
   // =====================================================
 
-  const handleSocialLogin = async (
-    provider
-  ) => {
+  const handleSocialLogin = async (provider) => {
     try {
       setError("");
 
       setSocialLoading(provider);
 
+      // ---------------------------------------------------
+      // PRESERVE CALLBACK URL
+      // ---------------------------------------------------
+
+      const callbackUrl = getCallbackUrl();
+
+      /*
+       * If user came from Property Details,
+       * preserve that route.
+       *
+       * Otherwise normal social login goes Home.
+       */
+
+      const finalCallbackUrl =
+        callbackUrl || "/";
+
+      // ---------------------------------------------------
+      // SOCIAL AUTH
+      // ---------------------------------------------------
+
       const { data, error } =
         await authClient.signIn.social({
           provider,
 
-          /*
-            New social users are assigned Tenant
-            by the backend as required by the assignment.
-          */
-
           callbackURL:
-            "http://localhost:3000/dashboard/tenant",
+            `http://localhost:3000${finalCallbackUrl}`,
 
           errorCallbackURL:
             "http://localhost:3000/login",
 
           newUserCallbackURL:
-            "http://localhost:3000/dashboard/tenant",
-
-          /*
-            We handle the OAuth redirect manually.
-          */
+            `http://localhost:3000${finalCallbackUrl}`,
 
           disableRedirect: true,
         });
@@ -205,14 +233,12 @@ export default function LoginForm() {
         );
       }
 
-      /*
-        Better Auth returns the OAuth provider URL
-        when disableRedirect is true.
-      */
+      // ---------------------------------------------------
+      // REDIRECT TO OAUTH PROVIDER
+      // ---------------------------------------------------
 
       if (data?.url) {
         window.location.assign(data.url);
-
         return;
       }
 
@@ -250,6 +276,7 @@ export default function LoginForm() {
       className="w-full max-w-md"
     >
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#151515] shadow-2xl">
+
         {/* =================================================
             HEADER
         ================================================== */}
@@ -278,7 +305,7 @@ export default function LoginForm() {
           onSubmit={handleSubmit}
           className="space-y-4 px-7"
         >
-          {/* ERROR MESSAGE */}
+          {/* ERROR */}
 
           {error && (
             <motion.div
@@ -296,9 +323,7 @@ export default function LoginForm() {
             </motion.div>
           )}
 
-          {/* =================================================
-              EMAIL
-          ================================================== */}
+          {/* EMAIL */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-300">
@@ -325,9 +350,7 @@ export default function LoginForm() {
             </div>
           </div>
 
-          {/* =================================================
-              PASSWORD
-          ================================================== */}
+          {/* PASSWORD */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-300">
@@ -360,8 +383,7 @@ export default function LoginForm() {
                 type="button"
                 onClick={() =>
                   setShowPassword(
-                    (previous) =>
-                      !previous
+                    (previous) => !previous
                   )
                 }
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-white"
@@ -380,9 +402,7 @@ export default function LoginForm() {
             </div>
           </div>
 
-          {/* =================================================
-              FORGOT PASSWORD
-          ================================================== */}
+          {/* FORGOT PASSWORD */}
 
           <div className="flex justify-end">
             <Link
@@ -393,9 +413,7 @@ export default function LoginForm() {
             </Link>
           </div>
 
-          {/* =================================================
-              LOGIN BUTTON
-          ================================================== */}
+          {/* LOGIN BUTTON */}
 
           <button
             type="submit"
@@ -436,10 +454,11 @@ export default function LoginForm() {
         </div>
 
         {/* =================================================
-            SOCIAL LOGIN BUTTONS
+            SOCIAL LOGIN
         ================================================== */}
 
         <div className="grid grid-cols-3 gap-3 px-7">
+
           {/* GOOGLE */}
 
           <button
@@ -502,8 +521,7 @@ export default function LoginForm() {
             className="flex h-11 items-center justify-center rounded-xl border border-white/10 bg-[#0d0d0d] transition hover:border-white/20 hover:bg-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Continue with Facebook"
           >
-            {socialLoading ===
-            "facebook" ? (
+            {socialLoading === "facebook" ? (
               <Loader2
                 size={18}
                 className="animate-spin"
@@ -520,7 +538,7 @@ export default function LoginForm() {
 
         <div className="px-7 pb-8 pt-6 text-center">
           <p className="text-sm text-zinc-500">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
 
             <Link
               href="/register"
@@ -564,7 +582,7 @@ function GoogleIcon() {
       />
 
       <path
-        d="M12 6.07c1.5 0 2.85.515 3.91 1.525l2.93-2.93C17.07 2.99 14.755 2 12 2A10.22 10.22 0 0 0 2.86 7.64l3.41 2.645C7.08 7.87 9.335 6.07 12 6.07Z"
+        d="M12 6.07c1.5 0 2.85.515 3.91 1.525l2.93-2.93C17.07 2.99 14.755 2 12 2A10.22 10.22 0 0 0 2.86 7.64l3.41 2.645 3.41 2.645Z"
         fill="#EA4335"
       />
     </svg>
