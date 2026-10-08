@@ -19,6 +19,7 @@ import bookingRoutes from "./routes/bookingRoutes.js";
 import ownerAnalyticsRoutes from "./routes/ownerAnalyticsRoutes.js";
 import favoriteRoutes from "./routes/favoriteRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+import reviewRoutes from "./routes/reviewRoutes.js";
 
 const app = express();
 
@@ -115,6 +116,17 @@ app.use(
 app.use(
   "/api/payments",
   paymentRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| REVIEW ROUTES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/reviews",
+  reviewRoutes
 );
 
 /*

@@ -1,8 +1,6 @@
 import express from "express";
 import Stripe from "stripe";
 
-import { protect, requireRole } from "../middleware/authMiddleware.js";
-
 import Property from "../models/Property.js";
 import Booking from "../models/Booking.js";
 import Transaction from "../models/Transaction.js";
@@ -13,33 +11,152 @@ const stripe = new Stripe(
   process.env.STRIPE_SECRET_KEY
 );
 
+const FRONTEND_URL =
+  process.env.FRONTEND_URL ||
+  "http://localhost:3000";
+
+/*
+|--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+const getPropertyOwner = (property) => {
+  const owner =
+    property?.owner ||
+    property?.ownerInfo ||
+    {};
+
+  return {
+    id:
+      owner?.id ||
+      owner?._id ||
+      property?.ownerId ||
+      "",
+
+    name:
+      owner?.name ||
+      property?.ownerName ||
+      "Property Owner",
+
+    email:
+      owner?.email ||
+      property?.ownerEmail ||
+      "",
+
+    photo:
+      owner?.photo ||
+      owner?.image ||
+      property?.ownerPhoto ||
+      "",
+  };
+};
+
+const getPropertyImage = (property) => {
+  if (
+    Array.isArray(property?.images) &&
+    property.images.length > 0
+  ) {
+    return property.images[0];
+  }
+
+  return property?.image || "";
+};
+
+const calculateEndDate = (
+  startDate,
+  duration
+) => {
+  const endDate =
+    new Date(startDate);
+
+  endDate.setMonth(
+    endDate.getMonth() +
+      Number(duration)
+  );
+
+  return endDate;
+};
+
+/*
+|--------------------------------------------------------------------------
+| CHECK PROPERTY AVAILABILITY
+|--------------------------------------------------------------------------
+|
+| Same property + overlapping dates = unavailable
+|
+| Same property + different dates = available
+|
+| Rejected / Cancelled bookings do not block
+|
+|--------------------------------------------------------------------------
+*/
+
+const checkPropertyAvailability = async ({
+  propertyId,
+  startDate,
+  endDate,
+  excludeBookingId = null,
+}) => {
+  const query = {
+    "property.id": String(
+      propertyId
+    ),
+
+    status: {
+      $nin: [
+        "Rejected",
+        "Cancelled",
+      ],
+    },
+
+    startDate: {
+      $lt: endDate,
+    },
+
+    endDate: {
+      $gt: startDate,
+    },
+  };
+
+  if (excludeBookingId) {
+    query._id = {
+      $ne: excludeBookingId,
+    };
+  }
+
+  const existingBooking =
+    await Booking.findOne(query);
+
+  return !existingBooking;
+};
+
 /*
 |--------------------------------------------------------------------------
 | CREATE STRIPE CHECKOUT SESSION
 |--------------------------------------------------------------------------
 |
-| POST /api/payments/create-checkout-session
-|
-| Tenant creates a Stripe Checkout Session.
+| POST
+| /api/payments/create-checkout-session
 |
 |--------------------------------------------------------------------------
 */
 
 router.post(
   "/create-checkout-session",
-  protect,
-  requireRole("tenant"),
   async (req, res) => {
     try {
       const {
         propertyId,
-        propertyTitle,
-        rent,
-        rentType,
         moveInDate,
         duration,
         phone,
         additionalNotes,
+
+        tenantId,
+        tenantName,
+        tenantEmail,
+        tenantPhoto,
       } = req.body;
 
       /*
@@ -64,22 +181,35 @@ router.post(
         });
       }
 
+      const bookingDuration =
+        Number(duration);
+
       if (
-        !duration ||
-        Number(duration) < 1
+        !Number.isInteger(
+          bookingDuration
+        ) ||
+        bookingDuration < 1
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Booking duration must be at least 1.",
+            "Booking duration must be at least 1 month.",
         });
       }
 
-      if (!phone?.trim()) {
+      if (!tenantId) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Tenant information is missing. Please login again.",
+        });
+      }
+
+      if (!tenantEmail) {
         return res.status(400).json({
           success: false,
           message:
-            "Contact number is required.",
+            "Tenant email is required.",
         });
       }
 
@@ -104,58 +234,118 @@ router.post(
 
       /*
       |--------------------------------------------------------------------------
-      | PROPERTY MUST BE APPROVED
+      | PROPERTY STATUS
       |--------------------------------------------------------------------------
       */
 
+      const propertyStatus =
+        String(
+          property.status || ""
+        ).toLowerCase();
+
       if (
-        property.status !==
-        "Approved"
+        propertyStatus &&
+        propertyStatus !== "approved"
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "This property is not available for booking.",
+            "This property is not currently available for booking.",
         });
       }
 
       /*
       |--------------------------------------------------------------------------
-      | USE DATABASE PROPERTY DATA
+      | RENT
       |--------------------------------------------------------------------------
       */
 
-      const propertyRent =
+      const monthlyRent =
         Number(property.rent);
-
-      const bookingDuration =
-        Number(duration);
-
-      const totalAmount =
-        propertyRent *
-        bookingDuration;
 
       if (
         !Number.isFinite(
-          totalAmount
+          monthlyRent
         ) ||
-        totalAmount <= 0
+        monthlyRent <= 0
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Invalid payment amount.",
+            "Invalid rental price.",
         });
       }
+
+      /*
+      |--------------------------------------------------------------------------
+      | START DATE
+      |--------------------------------------------------------------------------
+      */
+
+      const startDate =
+        new Date(moveInDate);
+
+      if (
+        Number.isNaN(
+          startDate.getTime()
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid move-in date.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | END DATE
+      |--------------------------------------------------------------------------
+      */
+
+      const endDate =
+        calculateEndDate(
+          startDate,
+          bookingDuration
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | CHECK DATE AVAILABILITY
+      |--------------------------------------------------------------------------
+      */
+
+      const isAvailable =
+        await checkPropertyAvailability(
+          {
+            propertyId,
+            startDate,
+            endDate,
+          }
+        );
+
+      if (!isAvailable) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This property is already booked for the selected dates. Please choose different dates.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | TOTAL AMOUNT
+      |--------------------------------------------------------------------------
+      */
+
+      const totalAmount =
+        monthlyRent *
+        bookingDuration;
 
       /*
       |--------------------------------------------------------------------------
       | STRIPE AMOUNT
       |--------------------------------------------------------------------------
-      |
-      | Stripe expects amount in the smallest currency unit.
-      | For BDT, amount is multiplied by 100.
-      |
       */
 
       const stripeAmount =
@@ -165,7 +355,7 @@ router.post(
 
       /*
       |--------------------------------------------------------------------------
-      | CREATE CHECKOUT SESSION
+      | CREATE STRIPE SESSION
       |--------------------------------------------------------------------------
       */
 
@@ -173,10 +363,6 @@ router.post(
         await stripe.checkout.sessions.create(
           {
             mode: "payment",
-
-            payment_method_types: [
-              "card",
-            ],
 
             line_items: [
               {
@@ -186,45 +372,59 @@ router.post(
                   product_data: {
                     name:
                       property.title ||
-                      propertyTitle ||
-                      "Property Booking",
+                      "Property Rental",
 
                     description:
-                      property.location ||
-                      "",
+                      `${property.rentType || "Monthly"} rental - ${bookingDuration} month(s)`,
                   },
 
                   unit_amount:
-                    propertyRent *
-                    100,
+                    stripeAmount,
                 },
 
-                quantity:
-                  bookingDuration,
+                quantity: 1,
               },
             ],
 
             customer_email:
-              req.user.email,
+              tenantEmail,
+
+            success_url:
+              `${FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+
+            cancel_url:
+              `${FRONTEND_URL}/payment?propertyId=${encodeURIComponent(
+                propertyId
+              )}&moveInDate=${encodeURIComponent(
+                moveInDate
+              )}&phone=${encodeURIComponent(
+                phone || ""
+              )}&additionalNotes=${encodeURIComponent(
+                additionalNotes || ""
+              )}&duration=${bookingDuration}`,
 
             metadata: {
               propertyId:
-                String(property._id),
+                String(propertyId),
 
               tenantId:
-                String(req.user.id),
+                String(tenantId),
 
               tenantName:
-                req.user.name || "",
+                String(
+                  tenantName ||
+                    "Tenant"
+                ),
 
               tenantEmail:
-                req.user.email || "",
+                String(
+                  tenantEmail
+                ),
 
               tenantPhoto:
-                req.user.photo || "",
-
-              propertyTitle:
-                property.title || "",
+                String(
+                  tenantPhoto || ""
+                ),
 
               moveInDate:
                 String(moveInDate),
@@ -235,18 +435,18 @@ router.post(
                 ),
 
               phone:
-                phone.trim(),
+                String(phone || ""),
 
               additionalNotes:
-                additionalNotes?.trim() ||
-                "",
+                String(
+                  additionalNotes || ""
+                ),
+
+              totalAmount:
+                String(
+                  totalAmount
+                ),
             },
-
-            success_url:
-              "http://localhost:3000/payment/success?session_id={CHECKOUT_SESSION_ID}",
-
-            cancel_url:
-              "http://localhost:3000/payment/cancel",
           }
         );
 
@@ -259,31 +459,22 @@ router.post(
       return res.status(200).json({
         success: true,
 
-        message:
-          "Stripe checkout session created.",
-
-        sessionId:
-          checkoutSession.id,
-
         checkoutUrl:
           checkoutSession.url,
 
-        amount:
-          totalAmount,
-
-        currency: "BDT",
+        sessionId:
+          checkoutSession.id,
       });
     } catch (error) {
       console.error(
-        "Create checkout session error:",
+        "Stripe checkout creation error:",
         error
       );
 
       return res.status(500).json({
         success: false,
-
         message:
-          error.message ||
+          error?.message ||
           "Failed to create Stripe checkout session.",
       });
     }
@@ -292,18 +483,14 @@ router.post(
 
 /*
 |--------------------------------------------------------------------------
-| VERIFY PAYMENT + CREATE BOOKING + TRANSACTION
+| VERIFY STRIPE PAYMENT
 |--------------------------------------------------------------------------
 |
-| GET /api/payments/verify-session/:sessionId
+| IMPORTANT:
 |
-| This endpoint:
+| Frontend success page calls:
 |
-| 1. Retrieves Stripe Checkout Session
-| 2. Confirms payment was successful
-| 3. Creates Booking
-| 4. Creates Transaction
-| 5. Prevents duplicate records
+| /api/payments/verify-session/:sessionId
 |
 |--------------------------------------------------------------------------
 */
@@ -318,13 +505,14 @@ router.get(
 
       /*
       |--------------------------------------------------------------------------
-      | VALIDATE SESSION ID
+      | SESSION ID
       |--------------------------------------------------------------------------
       */
 
       if (!sessionId) {
         return res.status(400).json({
           success: false,
+          paid: false,
           message:
             "Stripe session ID is required.",
         });
@@ -332,54 +520,80 @@ router.get(
 
       /*
       |--------------------------------------------------------------------------
-      | RETRIEVE STRIPE SESSION
+      | GET STRIPE SESSION
       |--------------------------------------------------------------------------
       */
 
-      const session =
+      const stripeSession =
         await stripe.checkout.sessions.retrieve(
           sessionId
         );
 
       /*
       |--------------------------------------------------------------------------
-      | CHECK PAYMENT STATUS
+      | VERIFY PAYMENT
       |--------------------------------------------------------------------------
       */
 
       if (
-        session.payment_status !==
+        stripeSession.payment_status !==
         "paid"
       ) {
         return res.status(400).json({
           success: false,
           paid: false,
           message:
-            "Payment has not been completed.",
+            "Your payment has not been completed.",
         });
       }
 
       /*
       |--------------------------------------------------------------------------
-      | STRIPE METADATA
+      | METADATA
       |--------------------------------------------------------------------------
       */
 
       const metadata =
-        session.metadata || {};
+        stripeSession.metadata || {};
 
-      const {
-        propertyId,
-        tenantId,
-        tenantName,
-        tenantEmail,
-        tenantPhoto,
-        propertyTitle,
-        moveInDate,
-        duration,
-        phone,
-        additionalNotes,
-      } = metadata;
+      const propertyId =
+        metadata.propertyId;
+
+      const tenantId =
+        metadata.tenantId;
+
+      const tenantName =
+        metadata.tenantName ||
+        "Tenant";
+
+      const tenantEmail =
+        metadata.tenantEmail ||
+        stripeSession.customer_email ||
+        "";
+
+      const tenantPhoto =
+        metadata.tenantPhoto ||
+        "";
+
+      const moveInDate =
+        metadata.moveInDate;
+
+      const duration =
+        Number(
+          metadata.duration || 1
+        );
+
+      const phone =
+        metadata.phone || "";
+
+      const additionalNotes =
+        metadata.additionalNotes ||
+        "";
+
+      const totalAmount =
+        Number(
+          metadata.totalAmount || 0
+        );
 
       /*
       |--------------------------------------------------------------------------
@@ -387,18 +601,39 @@ router.get(
       |--------------------------------------------------------------------------
       */
 
-      if (
-        !propertyId ||
-        !tenantId ||
-        !tenantEmail ||
-        !moveInDate ||
-        !duration
-      ) {
+      if (!propertyId) {
         return res.status(400).json({
           success: false,
           paid: true,
           message:
-            "Payment succeeded, but booking information is incomplete.",
+            "Property information is missing from Stripe session.",
+        });
+      }
+
+      if (!tenantId) {
+        return res.status(400).json({
+          success: false,
+          paid: true,
+          message:
+            "Tenant information is missing from Stripe session.",
+        });
+      }
+
+      if (!tenantEmail) {
+        return res.status(400).json({
+          success: false,
+          paid: true,
+          message:
+            "Tenant email is missing from Stripe session.",
+        });
+      }
+
+      if (!moveInDate) {
+        return res.status(400).json({
+          success: false,
+          paid: true,
+          message:
+            "Move-in date is missing from Stripe session.",
         });
       }
 
@@ -418,42 +653,248 @@ router.get(
           success: false,
           paid: true,
           message:
-            "Property associated with this payment was not found.",
+            "Property not found.",
         });
       }
 
       /*
       |--------------------------------------------------------------------------
-      | FIND EXISTING BOOKING
+      | PAYMENT ID
       |--------------------------------------------------------------------------
-      |
-      | Prevent duplicate booking creation if user refreshes
-      | the success page.
-      |
       */
 
-      let booking =
-        await Booking.findOne({
-          paymentId:
-            session.payment_intent
-              ? String(
-                  session.payment_intent
-                )
-              : session.id,
-        });
+      const paymentId =
+        stripeSession.payment_intent
+          ? String(
+              stripeSession.payment_intent
+            )
+          : String(
+              stripeSession.id
+            );
 
       /*
       |--------------------------------------------------------------------------
-      | TOTAL AMOUNT
+      | CHECK EXISTING TRANSACTION
+      |--------------------------------------------------------------------------
+      |
+      | Refreshing the success page should NOT
+      | create another booking.
+      |
       |--------------------------------------------------------------------------
       */
 
-      const bookingDuration =
-        Number(duration);
+      const existingTransaction =
+        await Transaction.findOne({
+          paymentId,
+        });
 
-      const totalAmount =
-        Number(property.rent) *
-        bookingDuration;
+      if (existingTransaction) {
+        const existingBooking =
+          await Booking.findOne({
+            paymentId,
+          });
+
+        return res.status(200).json({
+          success: true,
+          paid: true,
+          alreadyProcessed: true,
+
+          booking:
+            existingBooking
+              ? {
+                  ...existingBooking.toObject(),
+                  id:
+                    String(
+                      existingBooking._id
+                    ),
+                }
+              : null,
+
+          transaction:
+            existingTransaction,
+
+          property:
+            existingTransaction.property,
+
+          message:
+            "Payment was already verified.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | DATE VALIDATION
+      |--------------------------------------------------------------------------
+      */
+
+      const startDate =
+        new Date(moveInDate);
+
+      if (
+        Number.isNaN(
+          startDate.getTime()
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          paid: true,
+          message:
+            "Invalid move-in date.",
+        });
+      }
+
+      const endDate =
+        calculateEndDate(
+          startDate,
+          duration
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | CHECK AVAILABILITY AGAIN
+      |--------------------------------------------------------------------------
+      |
+      | Important because another user could have booked
+      | the property while this payment was being processed.
+      |
+      |--------------------------------------------------------------------------
+      */
+
+      const isAvailable =
+        await checkPropertyAvailability(
+          {
+            propertyId,
+            startDate,
+            endDate,
+          }
+        );
+
+      if (!isAvailable) {
+        return res.status(409).json({
+          success: false,
+          paid: true,
+          bookingCreated: false,
+          message:
+            "Payment was successful, but this property is no longer available for the selected dates.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | PROPERTY IMAGE
+      |--------------------------------------------------------------------------
+      */
+
+      const propertyImage =
+        getPropertyImage(
+          property
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | OWNER
+      |--------------------------------------------------------------------------
+      */
+
+      const owner =
+        getPropertyOwner(
+          property
+        );
+
+      if (!owner.id) {
+        return res.status(400).json({
+          success: false,
+          paid: true,
+          message:
+            "Property owner information is missing.",
+        });
+      }
+
+      if (!owner.email) {
+        return res.status(400).json({
+          success: false,
+          paid: true,
+          message:
+            "Property owner email is missing.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | BOOKING PROPERTY
+      |--------------------------------------------------------------------------
+      */
+
+      const bookingProperty = {
+        id: String(
+          property._id
+        ),
+
+        title:
+          property.title ||
+          "Property",
+
+        location:
+          property.location ||
+          "",
+
+        image:
+          propertyImage,
+
+        rent:
+          Number(
+            property.rent || 0
+          ),
+
+        rentType:
+          property.rentType ||
+          "Monthly",
+      };
+
+      /*
+      |--------------------------------------------------------------------------
+      | BOOKING TENANT
+      |--------------------------------------------------------------------------
+      */
+
+      const bookingTenant = {
+        id: String(
+          tenantId
+        ),
+
+        name:
+          tenantName,
+
+        email:
+          tenantEmail,
+
+        phone:
+          phone || "",
+
+        photo:
+          tenantPhoto || "",
+      };
+
+      /*
+      |--------------------------------------------------------------------------
+      | BOOKING OWNER
+      |--------------------------------------------------------------------------
+      */
+
+      const bookingOwner = {
+        id: String(
+          owner.id
+        ),
+
+        name:
+          owner.name,
+
+        email:
+          owner.email,
+
+        photo:
+          owner.photo || "",
+      };
 
       /*
       |--------------------------------------------------------------------------
@@ -461,166 +902,55 @@ router.get(
       |--------------------------------------------------------------------------
       */
 
-      if (!booking) {
-        booking =
-          await Booking.create({
-            property: {
-              id: String(
-                property._id
-              ),
+      const booking =
+        await Booking.create({
+          property:
+            bookingProperty,
 
-              title:
-                property.title ||
-                propertyTitle ||
-                "",
+          tenant:
+            bookingTenant,
 
-              location:
-                property.location ||
-                "",
+          owner:
+            bookingOwner,
 
-              image:
-                property.images?.[0] ||
-                "",
+          startDate,
 
-              rent:
-                Number(
-                  property.rent
-                ),
+          endDate,
 
-              rentType:
-                property.rentType ||
-                "Monthly",
-            },
+          duration,
 
-            tenant: {
-              id:
-                String(tenantId),
+          totalAmount,
 
-              name:
-                tenantName ||
-                "Tenant",
+          note:
+            additionalNotes,
 
-              email:
-                tenantEmail,
+          status:
+            "Pending",
 
-              photo:
-                tenantPhoto ||
-                "",
+          rejectionFeedback:
+            "",
 
-              phone:
-                phone || "",
-            },
+          paymentStatus:
+            "Paid",
 
-            owner: {
-              id:
-                property.owner
-                  ?.id || "",
-
-              name:
-                property.owner
-                  ?.name || "",
-
-              email:
-                property.owner
-                  ?.email || "",
-
-              photo:
-                property.owner
-                  ?.photo || "",
-            },
-
-            moveInDate:
-              new Date(
-                moveInDate
-              ),
-
-            duration:
-              bookingDuration,
-
-            totalAmount,
-
-            additionalNotes:
-              additionalNotes ||
-              "",
-
-            status:
-              "Pending",
-
-            rejectionFeedback:
-              "",
-
-            paymentStatus:
-              "Paid",
-
-            paymentId:
-              session.payment_intent
-                ? String(
-                    session.payment_intent
-                  )
-                : session.id,
-          });
-      } else {
-        /*
-        |--------------------------------------------------------------------------
-        | UPDATE EXISTING BOOKING
-        |--------------------------------------------------------------------------
-        */
-
-        booking.paymentStatus =
-          "Paid";
-
-        booking.paymentId =
-          session.payment_intent
-            ? String(
-                session.payment_intent
-              )
-            : session.id;
-
-        await booking.save();
-      }
+          paymentId,
+        });
 
       /*
       |--------------------------------------------------------------------------
       | CREATE TRANSACTION
       |--------------------------------------------------------------------------
-      |
-      | Prevent duplicate transaction.
-      |
       */
 
-      let transaction =
-        await Transaction.findOne({
-          paymentId:
-            session.payment_intent
-              ? String(
-                  session.payment_intent
-                )
-              : session.id,
-        });
+      let transaction;
 
-      if (!transaction) {
-        /*
-        |--------------------------------------------------------------------------
-        | TRANSACTION ID
-        |--------------------------------------------------------------------------
-        */
-
-        const transactionId =
-          `TRX-${Date.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 8)
-            .toUpperCase()}`;
-
+      try {
         transaction =
           await Transaction.create({
-            transactionId,
+            transactionId:
+              paymentId,
 
-            paymentId:
-              session.payment_intent
-                ? String(
-                    session.payment_intent
-                  )
-                : session.id,
+            paymentId,
 
             bookingId:
               String(
@@ -628,21 +958,21 @@ router.get(
               ),
 
             property: {
-              id: String(
-                property._id
-              ),
+              id:
+                String(
+                  property._id
+                ),
 
               title:
                 property.title ||
-                "",
+                "Property",
 
               location:
                 property.location ||
                 "",
 
               image:
-                property.images?.[0] ||
-                "",
+                propertyImage,
             },
 
             tenant: {
@@ -652,8 +982,7 @@ router.get(
                 ),
 
               name:
-                tenantName ||
-                "Tenant",
+                tenantName,
 
               email:
                 tenantEmail,
@@ -661,16 +990,15 @@ router.get(
 
             owner: {
               id:
-                property.owner
-                  ?.id || "",
+                String(
+                  owner.id
+                ),
 
               name:
-                property.owner
-                  ?.name || "",
+                owner.name,
 
               email:
-                property.owner
-                  ?.email || "",
+                owner.email,
             },
 
             amount:
@@ -688,11 +1016,23 @@ router.get(
             transactionDate:
               new Date(),
           });
+      } catch (transactionError) {
+        /*
+        |--------------------------------------------------------------------------
+        | ROLLBACK BOOKING
+        |--------------------------------------------------------------------------
+        */
+
+        await Booking.findByIdAndDelete(
+          booking._id
+        );
+
+        throw transactionError;
       }
 
       /*
       |--------------------------------------------------------------------------
-      | RESPONSE
+      | SUCCESS RESPONSE
       |--------------------------------------------------------------------------
       */
 
@@ -701,73 +1041,59 @@ router.get(
 
         paid: true,
 
-        message:
-          "Payment verified successfully. Booking and transaction created.",
-
         booking: {
-          id: String(
-            booking._id
-          ),
+          ...booking.toObject(),
 
-          status:
-            booking.status,
-
-          paymentStatus:
-            booking.paymentStatus,
-
-          totalAmount:
-            booking.totalAmount,
+          id:
+            String(
+              booking._id
+            ),
         },
 
-        transaction: {
-          id: String(
-            transaction._id
-          ),
-
-          transactionId:
-            transaction.transactionId,
-
-          amount:
-            transaction.amount,
-
-          currency:
-            transaction.currency,
-
-          status:
-            transaction.status,
-        },
+        transaction,
 
         property: {
-          id: String(
-            property._id
-          ),
+          id:
+            String(
+              property._id
+            ),
 
           title:
-            property.title,
+            property.title ||
+            "Property",
 
           location:
-            property.location,
+            property.location ||
+            "",
 
           image:
-            property.images?.[0] ||
-            "",
+            propertyImage,
         },
+
+        message:
+          "Payment verified and booking created successfully.",
       });
     } catch (error) {
       console.error(
-        "Verify payment session error:",
+        "Payment verification error:",
         error
       );
 
       return res.status(500).json({
         success: false,
-
+        paid: false,
         message:
-          error.message ||
-          "Failed to verify payment.",
+          error?.message ||
+          "Payment verification failed.",
       });
     }
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| EXPORT
+|--------------------------------------------------------------------------
+*/
 
 export default router;
