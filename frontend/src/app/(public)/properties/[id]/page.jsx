@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import ReviewSection from "@/components/property/ReviewSection";
 
 import {
   ArrowLeft,
@@ -111,24 +112,6 @@ export default function PropertyDetailsPage() {
     return `/properties/${propertyId}`;
   };
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD SESSION
-  |--------------------------------------------------------------------------
-  |
-  | IMPORTANT:
-  | Better Auth getSession() returns:
-  |
-  | result.data.session
-  | result.data.user
-  |
-  | We combine them so the rest of this page can safely use:
-  |
-  | session.user
-  |
-  |--------------------------------------------------------------------------
-  */
-
   useEffect(() => {
     let mounted = true;
 
@@ -169,13 +152,7 @@ export default function PropertyDetailsPage() {
         console.log(
           "Property Details Role:",
           currentUser?.role
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | USER NOT LOGGED IN
-        |--------------------------------------------------------------------------
-        */
+        );   
 
         if (!sessionData || !currentUser) {
           router.replace(
@@ -1212,7 +1189,16 @@ export default function PropertyDetailsPage() {
               </div>
             </div>
           </section>
+
         </div>
+
+        {/* REVIEWS & RATINGS */}
+        <ReviewSection
+          propertyId={propertyId}
+          propertyTitle={property?.title}
+          session={session}
+        />
+       
       </main>
 
       {/* =====================================================

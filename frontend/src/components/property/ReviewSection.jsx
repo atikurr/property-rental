@@ -1,20 +1,16 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-
+import { useCallback, useEffect, useState } from "react";
 import {
   Loader2,
   MessageSquare,
   Send,
   Star,
   Trash2,
-  User,
 } from "lucide-react";
-
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-
 import { authClient } from "@/lib/auth-client";
 
 const API_URL =
@@ -28,207 +24,184 @@ export default function ReviewSection({
   const [reviews, setReviews] = useState([]);
   const [averageRating, setAverageRating] = useState(0);
   const [totalReviews, setTotalReviews] = useState(0);
-
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [comment, setComment] = useState("");
 
   const user = session?.user || null;
+  const isTenant = user?.role?.toLowerCase() === "tenant";
 
-  const userRole = user?.role?.toLowerCase();
+  // Fetch review data without updating React state.
+  const fetchReviews = useCallback(async () => {
+    if (!propertyId) {
+      return {
+        reviews: [],
+        averageRating: 0,
+        totalReviews: 0,
+      };
+    }
 
-  const isTenant = userRole === "tenant";
+    const response = await fetch(
+      `${API_URL}/api/reviews/property/${propertyId}`,
+      { cache: "no-store" }
+    );
 
-  // =====================================================
-  // LOAD REVIEWS
-  // =====================================================
+    const data = await response.json();
 
-  const loadReviews = async () => {
-    if (!propertyId) return;
+    if (!response.ok) {
+      throw new Error(
+        data?.message || "Failed to load reviews."
+      );
+    }
 
-    try {
-      setLoading(true);
+    return {
+      reviews: data?.reviews || [],
+      averageRating: Number(data?.averageRating || 0),
+      totalReviews: Number(data?.totalReviews || 0),
+    };
+  }, [propertyId]);
 
-      const response = await fetch(
-        `${API_URL}/api/reviews/property/${propertyId}`,
-        {
-          cache: "no-store",
+  // Initial loading: update state only after the request finishes.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadInitialReviews = async () => {
+      try {
+        const data = await fetchReviews();
+
+        if (cancelled) return;
+
+        setReviews(data.reviews);
+        setAverageRating(data.averageRating);
+        setTotalReviews(data.totalReviews);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Review loading error:", error);
+          toast.error(error.message || "Failed to load reviews.");
         }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.message || "Failed to load reviews."
-        );
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
+    };
 
-      setReviews(data?.reviews || []);
+    loadInitialReviews();
 
-      setAverageRating(
-        Number(data?.averageRating || 0)
-      );
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchReviews]);
 
-      setTotalReviews(
-        Number(data?.totalReviews || 0)
-      );
+  // Refresh reviews after submit or delete.
+  const refreshReviews = async () => {
+    try {
+      const data = await fetchReviews();
+
+      setReviews(data.reviews);
+      setAverageRating(data.averageRating);
+      setTotalReviews(data.totalReviews);
     } catch (error) {
-      console.error(
-        "Review loading error:",
-        error
-      );
-
-      toast.error(
-        error?.message ||
-          "Failed to load reviews."
-      );
-    } finally {
-      setLoading(false);
+      console.error("Review refresh error:", error);
+      toast.error(error.message || "Failed to refresh reviews.");
     }
   };
 
-  useEffect(() => {
-    loadReviews();
-  }, [propertyId]);
+  // Get authentication token.
+  const getToken = async () => {
+    const result = await authClient.token();
 
-  // =====================================================
-  // SUBMIT REVIEW
-  // =====================================================
+    return (
+      result?.data?.token ||
+      result?.token ||
+      ""
+    );
+  };
 
+  // Submit a review.
   const handleSubmitReview = async (event) => {
     event.preventDefault();
 
     if (!user) {
-      toast.error(
-        "Please login to submit a review."
-      );
+      toast.error("Please login to submit a review.");
       return;
     }
 
     if (!isTenant) {
-      toast.error(
-        "Only tenants can submit reviews."
-      );
+      toast.error("Only tenants can submit reviews.");
       return;
     }
 
     if (!rating) {
-      toast.error(
-        "Please select a rating."
-      );
-      return;
-    }
-
-    if (!comment.trim()) {
-      toast.error(
-        "Please write a review."
-      );
+      toast.error("Please select a rating.");
       return;
     }
 
     if (comment.trim().length < 3) {
-      toast.error(
-        "Review must contain at least 3 characters."
-      );
+      toast.error("Review must contain at least 3 characters.");
       return;
     }
 
     try {
       setSubmitting(true);
 
-      const tokenResponse =
-        await authClient.token();
-
-      const token =
-        tokenResponse?.data?.token ||
-        tokenResponse?.token ||
-        "";
+      const token = await getToken();
 
       if (!token) {
-        toast.error(
-          "Authentication token not found."
-        );
+        toast.error("Authentication token not found.");
         return;
       }
 
-      const response = await fetch(
-        `${API_URL}/api/reviews`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-
-          body: JSON.stringify({
-            propertyId,
-            rating,
-            comment: comment.trim(),
-          }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/reviews`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          propertyId,
+          rating,
+          comment: comment.trim(),
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data?.message ||
-            "Failed to submit review."
+          data?.message || "Failed to submit review."
         );
       }
 
-      toast.success(
-        "Review submitted successfully!"
-      );
+      toast.success("Review submitted successfully!");
 
       setRating(0);
       setHoverRating(0);
       setComment("");
 
-      await loadReviews();
+      await refreshReviews();
     } catch (error) {
-      console.error(
-        "Submit review error:",
-        error
-      );
-
-      toast.error(
-        error?.message ||
-          "Failed to submit review."
-      );
+      console.error("Submit review error:", error);
+      toast.error(error.message || "Failed to submit review.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // =====================================================
-  // DELETE REVIEW
-  // =====================================================
-
+  // Delete the current tenant's review.
   const handleDeleteReview = async (reviewId) => {
     if (!reviewId) return;
 
     try {
       setDeletingId(reviewId);
 
-      const tokenResponse =
-        await authClient.token();
-
-      const token =
-        tokenResponse?.data?.token ||
-        tokenResponse?.token ||
-        "";
+      const token = await getToken();
 
       if (!token) {
-        toast.error(
-          "Authentication token not found."
-        );
+        toast.error("Authentication token not found.");
         return;
       }
 
@@ -236,7 +209,6 @@ export default function ReviewSection({
         `${API_URL}/api/reviews/${reviewId}`,
         {
           method: "DELETE",
-
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -247,88 +219,67 @@ export default function ReviewSection({
 
       if (!response.ok) {
         throw new Error(
-          data?.message ||
-            "Failed to delete review."
+          data?.message || "Failed to delete review."
         );
       }
 
-      toast.success(
-        "Review deleted successfully."
-      );
+      toast.success("Review deleted successfully.");
 
-      await loadReviews();
+      await refreshReviews();
     } catch (error) {
-      console.error(
-        "Delete review error:",
-        error
-      );
-
-      toast.error(
-        error?.message ||
-          "Failed to delete review."
-      );
+      console.error("Delete review error:", error);
+      toast.error(error.message || "Failed to delete review.");
     } finally {
       setDeletingId(null);
     }
   };
 
-  // =====================================================
-  // HELPERS
-  // =====================================================
+  const isOwnReview = (review) =>
+    Boolean(
+      user?.id &&
+      review?.tenant?.id &&
+      String(user.id) === String(review.tenant.id)
+    );
 
   const formatDate = (date) => {
     if (!date) return "";
 
     const parsedDate = new Date(date);
 
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "";
-    }
+    if (Number.isNaN(parsedDate.getTime())) return "";
 
-    return parsedDate.toLocaleDateString(
-      "en-US",
-      {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      }
-    );
+    return parsedDate.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   };
 
-  const getInitial = (name) => {
-    return (
-      name?.charAt(0)?.toUpperCase() || "U"
-    );
-  };
+  const getInitial = (name) =>
+    name?.charAt(0)?.toUpperCase() || "U";
 
-  const isOwnReview = (review) => {
-    if (!user?.id || !review?.tenant?.id) {
-      return false;
-    }
-
-    return (
-      String(review.tenant.id) ===
-      String(user.id)
-    );
-  };
-
-  // =====================================================
-  // RENDER
-  // =====================================================
+  const renderStars = (value, size = "h-4 w-4") =>
+    [1, 2, 3, 4, 5].map((star) => (
+      <Star
+        key={star}
+        className={`${size} ${
+          star <= value
+            ? "fill-orange-400 text-orange-400"
+            : "text-slate-300"
+        }`}
+      />
+    ));
 
   return (
     <>
       <ToastContainer
         position="top-right"
         autoClose={3000}
-        theme="dark"
+        theme="light"
       />
 
       <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        {/* =================================================
-            HEADER
-        ================================================== */}
-
+        {/* Header */}
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -340,14 +291,13 @@ export default function ReviewSection({
             </div>
 
             <p className="mt-2 text-sm text-slate-500">
-              See what tenants say about this property.
+              {propertyTitle
+                ? `See what tenants say about ${propertyTitle}.`
+                : "See what tenants say about this property."}
             </p>
           </div>
 
-          {/* =================================================
-              RATING SUMMARY
-          ================================================== */}
-
+          {/* Rating summary */}
           <div className="flex items-center gap-4 rounded-2xl bg-orange-50 px-5 py-4">
             <div className="text-center">
               <p className="text-3xl font-bold text-slate-950">
@@ -355,21 +305,7 @@ export default function ReviewSection({
               </p>
 
               <div className="mt-1 flex justify-center">
-                {[1, 2, 3, 4, 5].map(
-                  (star) => (
-                    <Star
-                      key={star}
-                      className={`h-4 w-4 ${
-                        star <=
-                        Math.round(
-                          averageRating
-                        )
-                          ? "fill-orange-400 text-orange-400"
-                          : "text-slate-300"
-                      }`}
-                    />
-                  )
-                )}
+                {renderStars(Math.round(averageRating))}
               </div>
             </div>
 
@@ -381,18 +317,13 @@ export default function ReviewSection({
               </p>
 
               <p className="text-xs text-slate-500">
-                {totalReviews === 1
-                  ? "Review"
-                  : "Reviews"}
+                {totalReviews === 1 ? "Review" : "Reviews"}
               </p>
             </div>
           </div>
         </div>
 
-        {/* =================================================
-            REVIEW FORM
-        ================================================== */}
-
+        {/* Review form */}
         {user && isTenant && (
           <div className="mt-8 rounded-2xl border border-orange-100 bg-orange-50/50 p-5 sm:p-6">
             <h3 className="text-lg font-bold text-slate-950">
@@ -403,57 +334,38 @@ export default function ReviewSection({
               Share your experience with this property.
             </p>
 
-            <form
-              onSubmit={handleSubmitReview}
-              className="mt-5"
-            >
-              {/* STAR SELECTOR */}
+            <form onSubmit={handleSubmitReview} className="mt-5">
+              <label className="mb-2 block text-sm font-semibold text-slate-800">
+                Your Rating
+              </label>
 
-              <div>
-                <p className="mb-2 text-sm font-semibold text-slate-800">
-                  Your Rating
-                </p>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                    aria-label={`Rate ${star} stars`}
+                    className="rounded-md p-1 transition hover:scale-110"
+                  >
+                    <Star
+                      className={`h-7 w-7 ${
+                        star <= (hoverRating || rating)
+                          ? "fill-orange-400 text-orange-400"
+                          : "text-slate-300"
+                      }`}
+                    />
+                  </button>
+                ))}
 
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map(
-                    (star) => (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() =>
-                          setRating(star)
-                        }
-                        onMouseEnter={() =>
-                          setHoverRating(star)
-                        }
-                        onMouseLeave={() =>
-                          setHoverRating(0)
-                        }
-                        className="rounded-md p-1 transition hover:scale-110"
-                        aria-label={`Rate ${star} stars`}
-                      >
-                        <Star
-                          className={`h-7 w-7 ${
-                            star <=
-                            (hoverRating ||
-                              rating)
-                              ? "fill-orange-400 text-orange-400"
-                              : "text-slate-300"
-                          }`}
-                        />
-                      </button>
-                    )
-                  )}
-
-                  {rating > 0 && (
-                    <span className="ml-2 text-sm font-semibold text-slate-600">
-                      {rating}/5
-                    </span>
-                  )}
-                </div>
+                {rating > 0 && (
+                  <span className="ml-2 text-sm font-semibold text-slate-600">
+                    {rating}/5
+                  </span>
+                )}
               </div>
-
-              {/* COMMENT */}
 
               <div className="mt-5">
                 <label
@@ -466,23 +378,17 @@ export default function ReviewSection({
                 <textarea
                   id="reviewComment"
                   value={comment}
-                  onChange={(event) =>
-                    setComment(
-                      event.target.value
-                    )
-                  }
+                  onChange={(event) => setComment(event.target.value)}
                   rows={4}
                   maxLength={1000}
                   placeholder="Write your experience about this property..."
                   className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
                 />
 
-                <div className="mt-1 text-right text-xs text-slate-400">
+                <p className="mt-1 text-right text-xs text-slate-400">
                   {comment.length}/1000
-                </div>
+                </p>
               </div>
-
-              {/* SUBMIT */}
 
               <button
                 type="submit"
@@ -505,23 +411,15 @@ export default function ReviewSection({
           </div>
         )}
 
-        {/* =================================================
-            LOGIN MESSAGE
-        ================================================== */}
-
         {!user && (
           <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-center">
             <p className="text-sm text-slate-600">
-              Please login as a tenant to write a
-              review.
+              Please login as a tenant to write a review.
             </p>
           </div>
         )}
 
-        {/* =================================================
-            REVIEW LIST
-        ================================================== */}
-
+        {/* Reviews list */}
         <div className="mt-8">
           <div className="mb-5 flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-950">
@@ -530,9 +428,7 @@ export default function ReviewSection({
 
             <span className="text-sm text-slate-500">
               {totalReviews}{" "}
-              {totalReviews === 1
-                ? "review"
-                : "reviews"}
+              {totalReviews === 1 ? "review" : "reviews"}
             </span>
           </div>
 
@@ -561,15 +457,10 @@ export default function ReviewSection({
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex min-w-0 items-center gap-3">
-                      {/* AVATAR */}
-
                       {review?.tenant?.photo ? (
                         <Image
                           src={review.tenant.photo}
-                          alt={
-                            review.tenant.name ||
-                            "Tenant"
-                          }
+                          alt={review.tenant.name || "Tenant"}
                           width={44}
                           height={44}
                           unoptimized
@@ -577,44 +468,31 @@ export default function ReviewSection({
                         />
                       ) : (
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-600">
-                          {getInitial(
-                            review?.tenant?.name
-                          )}
+                          {getInitial(review?.tenant?.name)}
                         </div>
                       )}
 
                       <div className="min-w-0">
                         <h4 className="truncate text-sm font-bold text-slate-900">
-                          {review?.tenant?.name ||
-                            "Tenant"}
+                          {review?.tenant?.name || "Tenant"}
                         </h4>
 
                         <p className="truncate text-xs text-slate-500">
-                          {review?.tenant?.email ||
-                            ""}
+                          {review?.tenant?.email || ""}
                         </p>
                       </div>
                     </div>
 
-                    {/* DELETE OWN REVIEW */}
-
                     {isOwnReview(review) && (
                       <button
                         type="button"
-                        onClick={() =>
-                          handleDeleteReview(
-                            review._id
-                          )
-                        }
-                        disabled={
-                          deletingId ===
-                          review._id
-                        }
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                        onClick={() => handleDeleteReview(review._id)}
+                        disabled={deletingId === review._id}
+                        aria-label="Delete your review"
                         title="Delete review"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
                       >
-                        {deletingId ===
-                        review._id ? (
+                        {deletingId === review._id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Trash2 className="h-4 w-4" />
@@ -623,33 +501,15 @@ export default function ReviewSection({
                     )}
                   </div>
 
-                  {/* RATING */}
-
                   <div className="mt-4 flex items-center gap-3">
                     <div className="flex items-center">
-                      {[1, 2, 3, 4, 5].map(
-                        (star) => (
-                          <Star
-                            key={star}
-                            className={`h-4 w-4 ${
-                              star <=
-                              review.rating
-                                ? "fill-orange-400 text-orange-400"
-                                : "text-slate-300"
-                            }`}
-                          />
-                        )
-                      )}
+                      {renderStars(Number(review.rating))}
                     </div>
 
                     <span className="text-xs font-medium text-slate-400">
-                      {formatDate(
-                        review.createdAt
-                      )}
+                      {formatDate(review.createdAt)}
                     </span>
                   </div>
-
-                  {/* COMMENT */}
 
                   <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-600">
                     {review.comment}
