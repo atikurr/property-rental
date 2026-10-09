@@ -13,7 +13,6 @@ import {
   Apple,
   Loader2,
 } from "lucide-react";
-
 import { authClient } from "@/lib/auth-client";
 
 export default function LoginForm() {
@@ -26,16 +25,11 @@ export default function LoginForm() {
   const [socialLoading, setSocialLoading] = useState("");
   const [error, setError] = useState("");
 
-  // Get callback URL safely
+  // Safely read an internal callback path.
   const getCallbackUrl = () => {
-    if (typeof window === "undefined") {
-      return null;
-    }
+    if (typeof window === "undefined") return null;
 
-    const params = new URLSearchParams(
-      window.location.search
-    );
-
+    const params = new URLSearchParams(window.location.search);
     const callbackUrl = params.get("callbackUrl");
 
     if (
@@ -49,25 +43,19 @@ export default function LoginForm() {
     return null;
   };
 
-  // Redirect after login
   const redirectAfterLogin = (role) => {
     const callbackUrl = getCallbackUrl();
-    const normalizedRole = role?.toLowerCase();
 
-    if (normalizedRole === "admin") {
+    if (role?.toLowerCase() === "admin") {
       router.replace("/dashboard/admin");
       return;
     }
 
-    if (callbackUrl) {
-      router.replace(callbackUrl);
-      return;
-    }
-
-    router.replace("/");
+    router.replace(callbackUrl || "/");
+    router.refresh();
   };
 
-  // Email and password login
+  // Email/password login
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -80,33 +68,24 @@ export default function LoginForm() {
     try {
       setLoading(true);
 
-      const { data, error: loginError } =
-        await authClient.signIn.email({
-          email: email.trim(),
-          password,
-          disableRedirect: true,
-        });
+      const { error: loginError } = await authClient.signIn.email({
+        email: email.trim(),
+        password,
+        callbackURL: `${window.location.origin}${getCallbackUrl() || "/"}`,
+        rememberMe: true,
+      });
 
       if (loginError) {
         throw new Error(
-          loginError.message ||
-            "Invalid email or password."
+          loginError.message || "Invalid email or password."
         );
       }
 
-      if (!data) {
-        throw new Error(
-          "Login failed. Please try again."
-        );
-      }
-
-      const sessionResult =
-        await authClient.getSession();
+      const sessionResult = await authClient.getSession();
 
       if (sessionResult?.error) {
         throw new Error(
-          sessionResult.error.message ||
-            "Unable to get your session."
+          sessionResult.error.message || "Unable to get your session."
         );
       }
 
@@ -114,81 +93,53 @@ export default function LoginForm() {
 
       if (!user) {
         throw new Error(
-          "Login successful, but user session was not found."
+          "Login completed, but the session was not found. Please try again."
         );
       }
 
-      console.log("Logged in user:", user);
-      console.log("Logged in user role:", user.role);
-
       redirectAfterLogin(user.role);
-      router.refresh();
     } catch (err) {
-      console.error("Login error:", err);
-
-      setError(
-        err?.message ||
-          "Something went wrong. Please try again."
-      );
+      console.error("Email login error:", err);
+      setError(err?.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Social login: Google, Facebook, Apple
+  // Google and Facebook social login
   const handleSocialLogin = async (provider) => {
     try {
       setError("");
       setSocialLoading(provider);
 
-      // Automatically use current origin:
-      // localhost during local development,
-      // Vercel domain on the live website.
       const frontendUrl = window.location.origin;
+      const callbackPath = getCallbackUrl() || "/";
 
-      const callbackUrl = getCallbackUrl();
-      const finalCallbackUrl = callbackUrl || "/";
+      const result = await authClient.signIn.social({
+        provider,
+        callbackURL: `${frontendUrl}${callbackPath}`,
+        errorCallbackURL: `${frontendUrl}/login`,
+        newUserCallbackURL: `${frontendUrl}${callbackPath}`,
+        disableRedirect: true,
+      });
 
-      const { data, error: socialError } =
-        await authClient.signIn.social({
-          provider,
-
-          callbackURL:
-            `${frontendUrl}${finalCallbackUrl}`,
-
-          errorCallbackURL:
-            `${frontendUrl}/login`,
-
-          newUserCallbackURL:
-            `${frontendUrl}${finalCallbackUrl}`,
-        });
-
-      if (socialError) {
+      if (result?.error) {
         throw new Error(
-          socialError.message ||
-            `Unable to continue with ${provider}.`
+          result.error.message || `Unable to continue with ${provider}.`
         );
       }
 
-      // Better Auth normally handles the OAuth redirect.
-      // If a URL is returned, navigate to it.
-      if (data?.url) {
-        window.location.assign(data.url);
+      if (result?.data?.url) {
+        window.location.assign(result.data.url);
         return;
       }
 
-      // Some auth-client versions redirect automatically.
-      // If no URL is returned, check the browser network
-      // response and Better Auth configuration.
-      setSocialLoading("");
+      throw new Error(
+        "The authentication URL was not returned. Please check the browser console and backend logs."
+      );
     } catch (err) {
       console.error(`${provider} login error:`, err);
-
-      setError(
-        err?.message ||
-          `Unable to continue with ${provider}.`
-      );
-
+      setError(err?.message || `Unable to continue with ${provider}.`);
       setSocialLoading("");
     }
   };
@@ -201,13 +152,10 @@ export default function LoginForm() {
       className="w-full max-w-md"
     >
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#151515] shadow-2xl">
-
         {/* Header */}
         <div className="px-7 pb-6 pt-8 text-center">
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-black shadow-lg">
-            <span className="text-xl font-bold">
-              PR
-            </span>
+            <span className="text-xl font-bold">PR</span>
           </div>
 
           <h1 className="text-2xl font-semibold tracking-tight text-white">
@@ -219,15 +167,13 @@ export default function LoginForm() {
           </p>
         </div>
 
-        {/* Login Form */}
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4 px-7"
-        >
+        {/* Login form */}
+        <form onSubmit={handleSubmit} className="space-y-4 px-7">
           {error && (
             <motion.div
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
+              role="alert"
               className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400"
             >
               {error}
@@ -236,7 +182,10 @@ export default function LoginForm() {
 
           {/* Email */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-zinc-300">
+            <label
+              htmlFor="login-email"
+              className="mb-2 block text-sm font-medium text-zinc-300"
+            >
               Email
             </label>
 
@@ -247,12 +196,13 @@ export default function LoginForm() {
               />
 
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
-                disabled={loading}
+                disabled={loading || Boolean(socialLoading)}
                 required
                 className="h-12 w-full rounded-xl border border-white/10 bg-[#0d0d0d] pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 disabled:cursor-not-allowed disabled:opacity-60"
               />
@@ -261,7 +211,10 @@ export default function LoginForm() {
 
           {/* Password */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-zinc-300">
+            <label
+              htmlFor="login-password"
+              className="mb-2 block text-sm font-medium text-zinc-300"
+            >
               Password
             </label>
 
@@ -272,36 +225,29 @@ export default function LoginForm() {
               />
 
               <input
+                id="login-password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
                 autoComplete="current-password"
-                disabled={loading}
+                disabled={loading || Boolean(socialLoading)}
                 required
                 className="h-12 w-full rounded-xl border border-white/10 bg-[#0d0d0d] pl-11 pr-12 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 disabled:cursor-not-allowed disabled:opacity-60"
               />
 
               <button
                 type="button"
-                onClick={() =>
-                  setShowPassword((previous) => !previous)
-                }
+                onClick={() => setShowPassword((previous) => !previous)}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-white"
-                aria-label={
-                  showPassword ? "Hide password" : "Show password"
-                }
+                aria-label={showPassword ? "Hide password" : "Show password"}
               >
-                {showPassword ? (
-                  <EyeOff size={18} />
-                ) : (
-                  <Eye size={18} />
-                )}
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
 
-          {/* Forgot Password */}
+          {/* Forgot password */}
           <div className="flex justify-end">
             <Link
               href="/forgot-password"
@@ -311,7 +257,7 @@ export default function LoginForm() {
             </Link>
           </div>
 
-          {/* Login Button */}
+          {/* Submit */}
           <button
             type="submit"
             disabled={loading || Boolean(socialLoading)}
@@ -334,17 +280,12 @@ export default function LoginForm() {
         {/* Divider */}
         <div className="flex items-center gap-4 px-7 py-6">
           <div className="h-px flex-1 bg-white/10" />
-
-          <span className="text-xs text-zinc-600">
-            OR CONTINUE WITH
-          </span>
-
+          <span className="text-xs text-zinc-600">OR CONTINUE WITH</span>
           <div className="h-px flex-1 bg-white/10" />
         </div>
 
-        {/* Social Login */}
+        {/* Social login */}
         <div className="grid grid-cols-3 gap-3 px-7">
-
           {/* Google */}
           <button
             type="button"
@@ -354,28 +295,25 @@ export default function LoginForm() {
             aria-label="Continue with Google"
           >
             {socialLoading === "google" ? (
-              <Loader2
-                size={18}
-                className="animate-spin text-white"
-              />
+              <Loader2 size={18} className="animate-spin text-white" />
             ) : (
               <GoogleIcon />
             )}
           </button>
 
-          {/* Apple */}
+          {/* Apple: requires Apple provider configuration */}
           <button
             type="button"
-            onClick={() => handleSocialLogin("apple")}
+            onClick={() => {
+              setError(
+                "Apple login is not available until the Apple provider is configured on the backend."
+              );
+            }}
             disabled={Boolean(socialLoading) || loading}
             className="flex h-11 items-center justify-center rounded-xl border border-white/10 bg-[#0d0d0d] text-white transition hover:border-white/20 hover:bg-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="Continue with Apple"
+            aria-label="Apple login configuration required"
           >
-            {socialLoading === "apple" ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Apple size={20} />
-            )}
+            <Apple size={20} />
           </button>
 
           {/* Facebook */}
@@ -387,10 +325,7 @@ export default function LoginForm() {
             aria-label="Continue with Facebook"
           >
             {socialLoading === "facebook" ? (
-              <Loader2
-                size={18}
-                className="animate-spin text-white"
-              />
+              <Loader2 size={18} className="animate-spin text-white" />
             ) : (
               <FacebookIcon />
             )}
@@ -414,7 +349,6 @@ export default function LoginForm() {
   );
 }
 
-// Google Icon
 function GoogleIcon() {
   return (
     <svg
@@ -423,6 +357,7 @@ function GoogleIcon() {
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
       <path
         d="M21.805 12.23c0-.79-.065-1.55-.19-2.28H12v4.315h5.495a4.7 4.7 0 0 1-2.04 3.085v2.565h3.3c1.93-1.775 3.05-4.39 3.05-7.685Z"
@@ -437,14 +372,13 @@ function GoogleIcon() {
         fill="#FBBC05"
       />
       <path
-        d="M12 6.07c1.5 0 2.85.515 3.91 1.525l2.93-2.93C17.07 2.99 14.755 2 12 2A10.22 10.22 0 0 0 2.86 7.64l3.41 2.645 3.41 2.645Z"
+        d="M12 6.07c1.5 0 2.85.515 3.91 1.525l2.93-2.93C17.07 2.99 14.755 2 12 2A10.22 10.22 0 0 0 2.86 7.64l3.41 2.645A6.1 6.1 0 0 1 12 6.07Z"
         fill="#EA4335"
       />
     </svg>
   );
 }
 
-// Facebook Icon
 function FacebookIcon() {
   return (
     <svg
@@ -453,6 +387,7 @@ function FacebookIcon() {
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
       <path
         d="M24 12C24 5.373 18.627 0 12 0S0 5.373 0 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078V12h3.047V9.356c0-3.007 1.792-4.668 4.533-4.668 1.312 0 2.686.234 2.686.234v2.953h-1.514c-1.491 0-1.956.926-1.956 1.876V12h3.328l-.532 3.469h-2.796v8.385C19.612 22.954 24 17.99 24 12Z"

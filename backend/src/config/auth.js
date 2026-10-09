@@ -1,4 +1,3 @@
-
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
@@ -12,21 +11,30 @@ if (!mongoUrl) {
 }
 
 const mongoClient = new MongoClient(mongoUrl);
-
 const database = mongoClient.db("property_db");
 
 const frontendUrl =
   process.env.FRONTEND_URL ||
   "http://localhost:3000";
 
+const backendUrl =
+  process.env.BETTER_AUTH_URL ||
+  "http://localhost:5000";
+
 export const auth = betterAuth({
-  baseURL:
-    process.env.BETTER_AUTH_URL ||
-    "http://localhost:5000",
+  appName: "Property Rental",
+
+  baseURL: backendUrl,
 
   database: mongodbAdapter(database, {
     client: mongoClient,
   }),
+
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://property-rental-rosy.vercel.app",
+    frontendUrl,
+  ],
 
   user: {
     additionalFields: {
@@ -105,14 +113,8 @@ export const auth = betterAuth({
           photo: user.photo || user.image || "",
         }),
 
-        expirationTime: "7d",
+        expirationTime: "2d",
       },
     }),
-  ],
-
-  trustedOrigins: [
-    "http://localhost:3000",
-    "https://property-rental-rosy.vercel.app",
-    frontendUrl,
   ],
 });

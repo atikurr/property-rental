@@ -3,7 +3,6 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 
 import { toNodeHandler } from "better-auth/node";
-
 import { auth } from "./config/auth.js";
 
 import uploadRoutes from "./routes/uploadRoutes.js";
@@ -23,38 +22,66 @@ import reviewRoutes from "./routes/reviewRoutes.js";
 
 const app = express();
 
-/*
-|--------------------------------------------------------------------------
-| CORS
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   CORS CONFIGURATION
+======================================== */
+
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://property-rental-rosy.vercel.app",
+];
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "https://property-rental-rosy.vercel.app",
-    ],
+    origin: (origin, callback) => {
+      // Allow requests without an Origin header,
+      // such as server-to-server requests.
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error(`CORS blocked this origin: ${origin}`)
+      );
+    },
+
     credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
-/*
-|--------------------------------------------------------------------------
-| BETTER AUTH
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   COOKIE PARSER
+======================================== */
+
+app.use(cookieParser());
+
+/* ========================================
+   BETTER AUTH HANDLER
+   Keep before express.json()
+======================================== */
 
 app.all(
   "/api/auth/*splat",
   toNodeHandler(auth)
 );
 
-/*
-|--------------------------------------------------------------------------
-| BODY PARSERS
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   BODY PARSERS
+======================================== */
 
 app.use(express.json());
 
@@ -64,200 +91,133 @@ app.use(
   })
 );
 
-app.use(cookieParser());
+/* ========================================
+   UPLOAD ROUTES
+======================================== */
 
-/*
-|--------------------------------------------------------------------------
-| UPLOAD ROUTES
-|--------------------------------------------------------------------------
-*/
+app.use("/api/upload", uploadRoutes);
 
-app.use(
-  "/api/upload",
-  uploadRoutes
-);
+/* ========================================
+   PUBLIC PROPERTY ROUTES
+======================================== */
 
-/*
-|--------------------------------------------------------------------------
-| PUBLIC PROPERTY ROUTES
-|--------------------------------------------------------------------------
-*/
+app.use("/api/properties", propertyRoutes);
 
-app.use(
-  "/api/properties",
-  propertyRoutes
-);
+/* ========================================
+   BOOKING ROUTES
+======================================== */
 
-/*
-|--------------------------------------------------------------------------
-| BOOKING ROUTES
-|--------------------------------------------------------------------------
-*/
+app.use("/api/bookings", bookingRoutes);
 
-app.use(
-  "/api/bookings",
-  bookingRoutes
-);
+/* ========================================
+   FAVORITE ROUTES
+======================================== */
 
-/*
-|--------------------------------------------------------------------------
-| FAVORITE ROUTES
-|--------------------------------------------------------------------------
-*/
+app.use("/api/favorites", favoriteRoutes);
 
-app.use(
-  "/api/favorites",
-  favoriteRoutes
-);
+/* ========================================
+   PAYMENT ROUTES
+======================================== */
 
-/*
-|--------------------------------------------------------------------------
-| PAYMENT ROUTES
-|--------------------------------------------------------------------------
-*/
+app.use("/api/payments", paymentRoutes);
 
-app.use(
-  "/api/payments",
-  paymentRoutes
-);
+/* ========================================
+   REVIEW ROUTES
+======================================== */
 
-/*
-|--------------------------------------------------------------------------
-| REVIEW ROUTES
-|--------------------------------------------------------------------------
-*/
+app.use("/api/reviews", reviewRoutes);
 
-app.use(
-  "/api/reviews",
-  reviewRoutes
-);
-
-/*
-|--------------------------------------------------------------------------
-| ADMIN PROPERTY ROUTES
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   ADMIN PROPERTY ROUTES
+======================================== */
 
 app.use(
   "/api/admin/properties",
   adminPropertyRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| ADMIN USER ROUTES
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   ADMIN USER ROUTES
+======================================== */
 
 app.use(
   "/api/admin/users",
   adminUserRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| ADMIN BOOKING ROUTES
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   ADMIN BOOKING ROUTES
+======================================== */
 
 app.use(
   "/api/admin/bookings",
   adminBookingRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| ADMIN TRANSACTION ROUTES
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   ADMIN TRANSACTION ROUTES
+======================================== */
 
 app.use(
   "/api/admin/transactions",
   adminTransactionRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| ADMIN ANALYTICS ROUTES
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   ADMIN ANALYTICS ROUTES
+======================================== */
 
 app.use(
   "/api/admin/analytics",
   adminAnalyticsRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| OWNER ANALYTICS ROUTES
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   OWNER ANALYTICS ROUTES
+======================================== */
 
 app.use(
   "/api/owner",
   ownerAnalyticsRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| ROOT ROUTE
-|--------------------------------------------------------------------------
-*/
+/* ========================================
+   ROOT ROUTE
+======================================== */
 
-app.get(
-  "/",
-  (req, res) => {
-    res.status(200).json({
-      success: true,
-      message:
-        "Property Rental API is running",
-    });
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Property Rental API is running",
+  });
+});
+
+/* ========================================
+   404 HANDLER
+======================================== */
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found.",
+  });
+});
+
+/* ========================================
+   GLOBAL ERROR HANDLER
+======================================== */
+
+app.use((error, req, res, next) => {
+  console.error("Global error:", error);
+
+  if (res.headersSent) {
+    return next(error);
   }
-);
 
-/*
-|--------------------------------------------------------------------------
-| 404 ROUTE
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  (req, res) => {
-    res.status(404).json({
-      success: false,
-      message:
-        "Route not found.",
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| GLOBAL ERROR HANDLER
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  (
-    error,
-    req,
-    res,
-    next
-  ) => {
-    console.error(
-      "Global error:",
-      error
-    );
-
-    return res.status(
-      error.status || 500
-    ).json({
-      success: false,
-      message:
-        error.message ||
-        "Internal server error.",
-    });
-  }
-);
+  res.status(error.status || 500).json({
+    success: false,
+    message: error.message || "Internal server error.",
+  });
+});
 
 export default app;
