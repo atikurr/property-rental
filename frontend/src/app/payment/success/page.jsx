@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -24,7 +24,9 @@ import {
 
 import "react-toastify/dist/ReactToastify.css";
 
-const API_URL = "http://localhost:5000";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://property-rental-backend-hazel.vercel.app";
 
 /*
 |--------------------------------------------------------------------------
@@ -32,7 +34,7 @@ const API_URL = "http://localhost:5000";
 |--------------------------------------------------------------------------
 */
 
-export default function PaymentSuccessPage() {
+function PaymentSuccessPageContent() {
   const searchParams =
     useSearchParams();
 
@@ -794,5 +796,20 @@ useEffect(() => {
 
       </div>
     </main>
+  );
+}
+export default function PaymentSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-zinc-950">
+          <p className="text-sm text-slate-600 dark:text-zinc-300">
+            Verifying payment...
+          </p>
+        </main>
+      }
+    >
+      <PaymentSuccessPageContent />
+    </Suspense>
   );
 }
