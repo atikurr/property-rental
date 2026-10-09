@@ -31,7 +31,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: [
+      "http://localhost:3000",
+      "https://property-rental-rosy.vercel.app",
+    ],
     credentials: true,
   })
 );

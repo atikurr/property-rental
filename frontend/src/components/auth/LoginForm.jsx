@@ -214,14 +214,16 @@ export default function LoginForm() {
         await authClient.signIn.social({
           provider,
 
-          callbackURL:
-            `http://localhost:3000${finalCallbackUrl}`,
+          
+callbackURL:
+  `${FRONTEND_URL}${finalCallbackUrl}`,
 
-          errorCallbackURL:
-            "http://localhost:3000/login",
+errorCallbackURL:
+  `${FRONTEND_URL}/login`,
 
-          newUserCallbackURL:
-            `http://localhost:3000${finalCallbackUrl}`,
+newUserCallbackURL:
+  `${FRONTEND_URL}${finalCallbackUrl}`,
+
 
           disableRedirect: true,
         });

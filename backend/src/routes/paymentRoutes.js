@@ -78,20 +78,6 @@ const calculateEndDate = (
   return endDate;
 };
 
-/*
-|--------------------------------------------------------------------------
-| CHECK PROPERTY AVAILABILITY
-|--------------------------------------------------------------------------
-|
-| Same property + overlapping dates = unavailable
-|
-| Same property + different dates = available
-|
-| Rejected / Cancelled bookings do not block
-|
-|--------------------------------------------------------------------------
-*/
-
 const checkPropertyAvailability = async ({
   propertyId,
   startDate,
@@ -130,17 +116,6 @@ const checkPropertyAvailability = async ({
 
   return !existingBooking;
 };
-
-/*
-|--------------------------------------------------------------------------
-| CREATE STRIPE CHECKOUT SESSION
-|--------------------------------------------------------------------------
-|
-| POST
-| /api/payments/create-checkout-session
-|
-|--------------------------------------------------------------------------
-*/
 
 router.post(
   "/create-checkout-session",

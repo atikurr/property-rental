@@ -1,23 +1,15 @@
+
 import {
   createRemoteJWKSet,
   jwtVerify,
 } from "jose";
 
-/*
-|--------------------------------------------------------------------------
-| Better Auth JWKS
-|--------------------------------------------------------------------------
-|
-| Better Auth JWT plugin exposes the public keys through:
-|
-| http://localhost:5000/api/auth/jwks
-|
-*/
+const authUrl =
+  process.env.BETTER_AUTH_URL ||
+  "http://localhost:5000";
 
 const jwks = createRemoteJWKSet(
-  new URL(
-    `${process.env.BETTER_AUTH_URL}/api/auth/jwks`
-  )
+  new URL(`${authUrl}/api/auth/jwks`)
 );
 
 /*
@@ -26,39 +18,24 @@ const jwks = createRemoteJWKSet(
 |--------------------------------------------------------------------------
 */
 
-export const protect = async (
-  req,
-  res,
-  next
-) => {
+export const protect = async (req, res, next) => {
   try {
-    const authorization =
-      req.headers.authorization;
-
-    /*
-     * Authorization header missing
-     */
+    const authorization = req.headers.authorization;
 
     if (!authorization) {
       return res.status(401).json({
         success: false,
-        message:
-          "Authorization token is required.",
+        message: "Authorization token is required.",
       });
     }
 
-    /*
-     * Expected:
-     *
-     * Authorization: Bearer eyJ...
-     */
-
-    const [scheme, token] =
-      authorization.split(" ");
+    const [scheme, token, ...extra] =
+      authorization.trim().split(/\s+/);
 
     if (
       scheme !== "Bearer" ||
-      !token
+      !token ||
+      extra.length > 0
     ) {
       return res.status(401).json({
         success: false,
@@ -67,30 +44,29 @@ export const protect = async (
       });
     }
 
-    /*
-     * Verify JWT
-     */
+    const verifyOptions = {};
 
-    const { payload } =
-      await jwtVerify(
-        token,
-        jwks,
-        {
-          issuer:
-            process.env.BETTER_AUTH_URL,
+    // Add these only when they match the JWT's actual claims.
+    if (process.env.JWT_ISSUER) {
+      verifyOptions.issuer = process.env.JWT_ISSUER;
+    }
 
-          audience:
-            process.env.BETTER_AUTH_URL,
-        }
-      );
+    if (process.env.JWT_AUDIENCE) {
+      verifyOptions.audience = process.env.JWT_AUDIENCE;
+    }
 
-    /*
-     * Attach authenticated user
-     * information to request.
-     *
-     * These values come from the
-     * Better Auth JWT payload.
-     */
+    const { payload } = await jwtVerify(
+      token,
+      jwks,
+      verifyOptions
+    );
+
+    if (!payload.id || !payload.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Token is missing required user information.",
+      });
+    }
 
     req.user = {
       id: payload.id,
@@ -100,7 +76,7 @@ export const protect = async (
       photo: payload.photo || "",
     };
 
-    next();
+    return next();
   } catch (error) {
     console.error(
       "JWT verification error:",
@@ -109,8 +85,7 @@ export const protect = async (
 
     return res.status(401).json({
       success: false,
-      message:
-        "Invalid or expired token.",
+      message: "Invalid or expired token.",
     });
   }
 };
@@ -121,31 +96,16 @@ export const protect = async (
 |--------------------------------------------------------------------------
 */
 
-export const requireRole = (
-  ...allowedRoles
-) => {
+export const requireRole = (...allowedRoles) => {
   return (req, res, next) => {
-    /*
-     * protect middleware must run first.
-     */
-
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        message:
-          "Authentication required.",
+        message: "Authentication required.",
       });
     }
 
-    /*
-     * Check role
-     */
-
-    if (
-      !allowedRoles.includes(
-        req.user.role
-      )
-    ) {
+    if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message:
@@ -153,6 +113,6 @@ export const requireRole = (
       });
     }
 
-    next();
+    return next();
   };
 };
